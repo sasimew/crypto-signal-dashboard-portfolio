@@ -1,0 +1,19 @@
+.DS_Store
+.env
+env
+.htpasswd
+.pycache/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+data/
+
+# Local / production-only docs
+DEPLOY_CHECKLIST.md
+setup_vps.sh
+telegram_guide.docx
+
+# Personal site / embedded assets not needed for the public portfolio
+home.html
+

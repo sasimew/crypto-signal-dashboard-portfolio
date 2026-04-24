@@ -1,0 +1,82 @@
+# BUG FIX #6: cron ติดตั้งใน Dockerfile แล้ว ไม่ต้อง apt-get ใน CMD
+# BUG FIX #7: ใช้ bind mount ./data แบบถูกต้อง ไม่ใช่ named volume
+
+
+services:
+
+  crypto-api:
+    build: .
+    container_name: crypto-signal-api
+    restart: always
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data
+      - ./dashboard.html:/app/dashboard.html:ro
+      - ./api_server.py:/app/api_server.py:ro
+      - ./bot.py:/app/bot.py:ro
+      - ./config.py:/app/config.py:ro
+      - ./recheck.py:/app/recheck.py:ro
+      - ./export_log.py:/app/export_log.py:ro
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - DATA_DIR=/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  crypto-bot:
+    build: .
+    container_name: crypto-signal-bot
+    restart: always
+    volumes:
+      - ./data:/app/data
+      - ./bot.py:/app/bot.py:ro
+      - ./config.py:/app/config.py:ro
+      - ./recheck.py:/app/recheck.py:ro
+      - ./export_log.py:/app/export_log.py:ro
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - DATA_DIR=/app/data
+    command: >
+      sh -c "
+        echo '*/5 * * * * python3 /app/bot.py >> /app/data/bot.log 2>&1' > /etc/cron.d/cryptobot &&
+        echo '0 17 * * * python3 /app/recheck.py >> /app/data/recheck.log 2>&1' >> /etc/cron.d/cryptobot &&
+        chmod 0644 /etc/cron.d/cryptobot &&
+        cron -f
+      "
+    depends_on:
+      crypto-api:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    container_name: crypto-nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./.htpasswd:/etc/nginx/.htpasswd:ro
+      - ./home.html:/usr/share/nginx/html/index.html:ro
+      - ./data/certbot/conf:/etc/letsencrypt:ro
+      - ./data/certbot/www:/var/www/certbot:ro
+    depends_on:
+      - crypto-api
+
+  certbot:
+    image: certbot/certbot
+    container_name: crypto-certbot
+    restart: unless-stopped
+    volumes:
+      - ./data/certbot/conf:/etc/letsencrypt
+      - ./data/certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 12h & wait $${!}; done'"
