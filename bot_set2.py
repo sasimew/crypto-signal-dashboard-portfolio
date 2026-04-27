@@ -2028,8 +2028,12 @@ def main():
         if direction not in ("Long", "Short"):
             skipped += 1
             reason = "Direction=N/A: no valid long/short signal to validate"
-            log(f"  🚫 NO_DIRECTION: pre_conf={pre_conf}% → NO TRADE | {reason}")
-            rec = _base_log("NO TRADE", "TIER4_NO_DIRECTION")
+            capped_conf = min(pre_conf, cfg.CLAUDE_MIN_CONF - 1)
+            log(f"  🚫 NO_DIRECTION: pre_conf={pre_conf}% capped={capped_conf}% → NO TRADE | {reason}")
+            pre_conf_before_no_direction = pre_conf
+            pre_conf = capped_conf
+            rec = _base_log("NO TRADE", "TIER3_NO_DIRECTION")
+            rec["pre_conf_before_no_direction"] = pre_conf_before_no_direction
             rec["reject_reason"] = reason
             logs.insert(0, rec)
             time.sleep(1); continue

@@ -809,17 +809,21 @@ def api_analyze():
         # Manual follows bot gates: low-confidence or directionless requests are logged
         # as NO TRADE instead of letting Claude create conflicting manual scores.
         if final_direction not in ("Long", "Short"):
+            capped_conf = min(pre_conf, cfg.CLAUDE_MIN_CONF - 1)
+            pre_conf_before_no_direction = pre_conf
+            pre_conf = capped_conf
             sig = bot_module.build_signal(
                 symbol, final_direction, m, "NO TRADE", pre_conf, {},
                 f"Direction={final_direction}: no valid long/short signal to validate",
                 regime, regime_conf, regime_reasons,
                 strategy, filter_reason, tf_bk, rb_data,
-                gate_path="MANUAL_NO_DIRECTION",
+                gate_path="MANUAL_T3_NO_DIRECTION",
                 pre_conf=pre_conf,
                 claude_called=False
             )
             logs = load_json(cfg.LOG_FILE)
             sig["reject_reason"] = f"Direction={final_direction}: no valid long/short signal to validate"
+            sig["pre_conf_before_no_direction"] = pre_conf_before_no_direction
             logs.insert(0, sig)
             save_json(cfg.LOG_FILE, logs)
             return jsonify({"ok": True, "signal": sig, "tg_sent": False, "tg_reason": "not sent (NO TRADE)"})
