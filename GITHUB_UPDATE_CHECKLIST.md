@@ -2,6 +2,57 @@
 
 Use this checklist every time code, dashboard files, bot logic, docs, deployment files, or release notes are updated. The default rule is: if the update matters, commit it and push it to GitHub.
 
+## Project Paths
+
+- Working bot folder:
+
+```bash
+/Users/sasi/Desktop/crypto_bot
+```
+
+- GitHub publishing repo:
+
+```bash
+/Users/sasi/Documents/Playground
+```
+
+- GitHub remote:
+
+```bash
+https://github.com/sasimew/crypto-signal-dashboard-portfolio
+```
+
+Important: `/Users/sasi/Desktop/crypto_bot` is the active working folder but is not the Git repo. AI should copy public-safe files from the bot folder into `/Users/sasi/Documents/Playground`, then commit and push from `/Users/sasi/Documents/Playground`.
+
+## Public-Safe Copy Flow
+
+Copy only reviewed public-safe files from the working bot folder to the GitHub publishing repo:
+
+```bash
+cp /Users/sasi/Desktop/crypto_bot/api_server.py /Users/sasi/Documents/Playground/api_server.py
+cp /Users/sasi/Desktop/crypto_bot/recheck.py /Users/sasi/Documents/Playground/recheck.py
+cp /Users/sasi/Desktop/crypto_bot/dashboard.html /Users/sasi/Documents/Playground/dashboard.html
+cp /Users/sasi/Desktop/crypto_bot/docker-compose.yml /Users/sasi/Documents/Playground/docker-compose.yml
+cp /Users/sasi/Desktop/crypto_bot/Dockerfile /Users/sasi/Documents/Playground/Dockerfile
+cp /Users/sasi/Desktop/crypto_bot/export_log.py /Users/sasi/Documents/Playground/export_log.py
+cp /Users/sasi/Desktop/crypto_bot/clean_signal_errors.py /Users/sasi/Documents/Playground/clean_signal_errors.py
+cp /Users/sasi/Desktop/crypto_bot/bot_set2.py /Users/sasi/Documents/Playground/bot_set2.py
+cp /Users/sasi/Desktop/crypto_bot/config_set2.py /Users/sasi/Documents/Playground/config_set2.py
+cp /Users/sasi/Desktop/crypto_bot/bot_set2.py /Users/sasi/Documents/Playground/bot.py
+cp /Users/sasi/Desktop/crypto_bot/config_set2.py /Users/sasi/Documents/Playground/config.py
+```
+
+Do not copy these files or folders to GitHub:
+
+- `.env`
+- `env`
+- `.htpasswd`
+- `data/`
+- `export/`
+- `DEPLOY_CHECKLIST.md`
+- `setup_vps.sh`
+- private server IPs, credentials, tokens, or personal deployment notes
+
 ## 1. Before Editing
 
 - Confirm the target folder is the correct project.
@@ -90,9 +141,10 @@ git commit -m "config: use env file in cron container"
 
 ## 6. Push Every Update
 
-Push after every completed commit:
+Push after every completed commit from the GitHub publishing repo:
 
 ```bash
+cd /Users/sasi/Documents/Playground
 git push origin main
 ```
 
@@ -141,8 +193,9 @@ From now on, every completed code or documentation update should follow this flo
 
 1. edit
 2. validate
-3. secret scan
-4. stage intended files only
-5. commit with a clear message
-6. push to GitHub
-7. publish a release when the update is deployable or versioned
+3. copy public-safe files to `/Users/sasi/Documents/Playground`
+4. secret scan
+5. stage intended files only
+6. commit with a clear message
+7. push to GitHub from `/Users/sasi/Documents/Playground`
+8. publish a release when the update is deployable or versioned
