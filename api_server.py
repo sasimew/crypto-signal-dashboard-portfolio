@@ -545,6 +545,7 @@ def api_trend():
 
             t15 = m["tf_15m"]
             t1h = m["tf_1h"]  or {}
+            t2h = m.get("tf_2h") or {}
             t4h = m["tf_4h"]  or {}
 
             regime, regime_conf, regime_reasons = bot_module.detect_regime(
@@ -556,7 +557,8 @@ def api_trend():
             if regime == "TRENDING":
                 strategy = "TREND_FOLLOW"
                 passed, direction, reasons, tf_bk = bot_module.check_multi_tf(
-                    t4h, t1h, t15, m["price"])
+                    t4h, t1h, t15, m["price"],
+                    tf_2h=t2h, market_ctx=m.get("market_ctx") or {})
                 if passed:
                     bias = "BUY" if direction=="Long" else "SELL"
                 else:
@@ -653,6 +655,7 @@ def api_analyze():
 
         t15 = m["tf_15m"]
         t1h = m["tf_1h"]  or {}
+        t2h = m.get("tf_2h") or {}
         t4h = m["tf_4h"]  or {}
         entry_tf = m.get("entry_tf", "15m")  # บันทึกว่าใช้ TF ไหนจริง
 
@@ -676,7 +679,8 @@ def api_analyze():
         elif regime == "TRENDING":
             strategy = "TREND_FOLLOW"
             passed, auto_dir, reasons, tf_bk = bot_module.check_multi_tf(
-                t4h, t1h, t15, m["price"])
+                t4h, t1h, t15, m["price"],
+                tf_2h=t2h, market_ctx=m.get("market_ctx") or {})
             if auto_dir not in ("N/A", direction):
                 passed = False
                 reasons.append(f"Manual {direction} selected, but trend alignment prefers {auto_dir}")
@@ -742,7 +746,7 @@ def api_analyze():
         # ── Tier 5: AUTO APPROVE ──────────────────────────────
         auto_approved = False
         auto_approve_reason = ""
-        if pre_conf >= cfg.AUTO_APPROVE_CONF and passed:
+        if pre_conf >= cfg.AUTO_APPROVE_CONF and passed and not tf_bk.get("bias_fallback"):
             ema_15m_bull = (t15.get("ema_short",0) and t15.get("ema_mid",0) and
                             t15.get("ema_short") > t15.get("ema_mid"))
             ema_1h_bull  = (t1h.get("ema_short",0) and t1h.get("ema_mid",0) and

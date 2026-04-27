@@ -376,7 +376,7 @@ def detect_regime(tf_1h, tf_4h, price):
 # ═══════════════════════════════════════════════════════════
 # [4] TREND STRATEGY — TRENDING regime (pullback mode)
 # ═══════════════════════════════════════════════════════════
-def check_multi_tf(tf_4h, tf_1h, tf_15m, price):
+def check_multi_tf(tf_4h, tf_1h, tf_15m, price, tf_2h=None, market_ctx=None):
     """
     SET2 — TREND FOLLOW strategy (ปรับ threshold ให้ trigger ได้)
 
@@ -391,50 +391,78 @@ def check_multi_tf(tf_4h, tf_1h, tf_15m, price):
     if not tf_4h or not tf_1h or not tf_15m:
         return False, "N/A", ["ข้อมูล TF ไม่ครบ"], {}
 
-    # ── 4h Bias — ใช้ MACD4h + EMA เป็นหลัก (ไม่ใช่แค่ RSI) ──
-    e_s4  = tf_4h.get("ema_short"); e_m4 = tf_4h.get("ema_mid")
-    rsi_4 = tf_4h.get("rsi")
-    mh_4  = tf_4h.get("macd_hist") or 0
-    bias_4h = "NEUTRAL"
-
-    if e_s4 and e_m4 and rsi_4:
+    def htf_bias(tf, label):
+        e_s = tf.get("ema_short") if tf else None
+        e_m = tf.get("ema_mid") if tf else None
+        rsi = tf.get("rsi") if tf else None
+        mh  = (tf or {}).get("macd_hist") or 0
+        bias = "NEUTRAL"
+        local_reasons = []
+        if not (e_s and e_m and rsi):
+            local_reasons.append(f"{label} Bias: NEUTRAL (ข้อมูลไม่ครบ)")
+            return bias, e_s, e_m, rsi, mh, local_reasons
         # BULLISH: EMA bull + RSI > 50 (ผ่อนจาก 55) + MACD4h positive
         bull_conditions = [
-            e_s4 > e_m4,                            # EMA aligned
-            rsi_4 > S["MTF_4H_RSI_BULL"],           # RSI > 50
-            price > e_m4,                            # price above mid
+            e_s > e_m,                              # EMA aligned
+            rsi > S["MTF_4H_RSI_BULL"],             # RSI > 50
+            price > e_m,                            # price above mid
         ]
         # BEARISH: EMA bear + RSI < 50 + MACD4h negative
         bear_conditions = [
-            e_s4 < e_m4,
-            rsi_4 < S["MTF_4H_RSI_BEAR"],           # RSI < 50
-            price < e_m4,
+            e_s < e_m,
+            rsi < S["MTF_4H_RSI_BEAR"],             # RSI < 50
+            price < e_m,
         ]
 
         # [SET2] MACD4h direction เพิ่ม confidence
-        macd4_bull = mh_4 > 0
-        macd4_bear = mh_4 < 0
+        macd_bull = mh > 0
+        macd_bear = mh < 0
 
-        if sum(bull_conditions) >= 2 and macd4_bull:
-            bias_4h = "BULLISH"
-            reasons.append(f"4h Bias: BULLISH (EMA9>EMA21, RSI={rsi_4:.1f}, MACD4h={mh_4:.1f}+)")
-        elif sum(bear_conditions) >= 2 and macd4_bear:
-            bias_4h = "BEARISH"
-            reasons.append(f"4h Bias: BEARISH (EMA9<EMA21, RSI={rsi_4:.1f}, MACD4h={mh_4:.1f}-)")
+        if sum(bull_conditions) >= 2 and macd_bull:
+            bias = "BULLISH"
+            local_reasons.append(f"{label} Bias: BULLISH (EMA9>EMA21, RSI={rsi:.1f}, MACD={mh:.1f}+)")
+        elif sum(bear_conditions) >= 2 and macd_bear:
+            bias = "BEARISH"
+            local_reasons.append(f"{label} Bias: BEARISH (EMA9<EMA21, RSI={rsi:.1f}, MACD={mh:.1f}-)")
         elif sum(bull_conditions) >= 2:
-            bias_4h = "BULLISH"  # EMA+RSI align แต่ MACD flat → ยังนับ
-            reasons.append(f"4h Bias: BULLISH (EMA+RSI aligned, MACD4h={mh_4:.1f} weak)")
+            bias = "BULLISH"  # EMA+RSI align แต่ MACD flat → ยังนับ
+            local_reasons.append(f"{label} Bias: BULLISH (EMA+RSI aligned, MACD={mh:.1f} weak)")
         elif sum(bear_conditions) >= 2:
-            bias_4h = "BEARISH"
-            reasons.append(f"4h Bias: BEARISH (EMA+RSI aligned, MACD4h={mh_4:.1f} weak)")
+            bias = "BEARISH"
+            local_reasons.append(f"{label} Bias: BEARISH (EMA+RSI aligned, MACD={mh:.1f} weak)")
         else:
-            reasons.append(f"4h Bias: NEUTRAL (RSI={rsi_4:.1f}, MACD4h={mh_4:.1f})")
+            local_reasons.append(f"{label} Bias: NEUTRAL (RSI={rsi:.1f}, MACD={mh:.1f})")
+        return bias, e_s, e_m, rsi, mh, local_reasons
 
+    # ── 4h Bias — ใช้ MACD4h + EMA เป็นหลัก (ไม่ใช่แค่ RSI) ──
+    bias_4h, e_s4, e_m4, rsi_4, mh_4, bias_reasons = htf_bias(tf_4h, "4h")
+    reasons.extend(bias_reasons)
     tf_bk["4h"] = {"bias": bias_4h, "ema_short": e_s4, "ema_mid": e_m4,
                    "rsi": rsi_4, "macd_hist": mh_4}
 
+    bias_source = "4h"
+    bias_fallback = False
     if bias_4h == "NEUTRAL":
-        return False, "N/A", reasons, tf_bk
+        bias_2h, e_s2, e_m2, rsi_2, mh_2, bias2_reasons = htf_bias(tf_2h or {}, "2h")
+        reasons.extend(bias2_reasons)
+        tf_bk["2h"] = {"bias": bias_2h, "ema_short": e_s2, "ema_mid": e_m2,
+                       "rsi": rsi_2, "macd_hist": mh_2, "fallback_bias": bias_2h != "NEUTRAL"}
+        if bias_2h == "NEUTRAL":
+            return False, "N/A", reasons, tf_bk
+        candidate_dir = "Long" if bias_2h == "BULLISH" else "Short"
+        if not market_ctx or market_ctx.get("ls_ratio") is None:
+            reasons.append(f"2h fallback blocked: L/S context unavailable for {candidate_dir}")
+            return False, "N/A", reasons, tf_bk
+        if not is_market_context_aligned(market_ctx, candidate_dir):
+            reasons.append(f"2h fallback blocked: market context/L/S not aligned for {candidate_dir}")
+            return False, "N/A", reasons, tf_bk
+        bias_4h = bias_2h
+        bias_source = "2h"
+        bias_fallback = True
+        reasons.append(f"Using 2h fallback bias: {bias_2h} (4h neutral)")
+
+    tf_bk["bias_source"] = bias_source
+    tf_bk["bias_fallback"] = bias_fallback
 
     # ── 1h Direction — RSI threshold ผ่อนลง ─────────────────
     e_s1  = tf_1h.get("ema_short"); e_m1 = tf_1h.get("ema_mid")
@@ -447,7 +475,7 @@ def check_multi_tf(tf_4h, tf_1h, tf_15m, price):
             # Pullback mode: ยอมรับ RSI ต่ำหน่อยถ้า EMA ยังถือ
             if e_s1 > e_m1 and rsi_1 > S["MTF_1H_RSI_CONFIRM"]:
                 dir_1h = "LONG"
-                reasons.append(f"1h Direction: LONG (EMA9>{e_m1:.0f}, RSI={rsi_1:.1f})")
+                reasons.append(f"1h Direction: LONG (EMA9>{e_m1:.0f}, RSI={rsi_1:.1f}, bias={bias_source})")
             elif cfg.TREND_USE_PULLBACK_ENTRY and e_s1 > e_m1 * 0.998 and rsi_1 > 40:
                 # Pullback mode: price ถอยมาใกล้ EMA21 แต่ยังไม่ cross
                 dir_1h = "LONG"
@@ -457,7 +485,7 @@ def check_multi_tf(tf_4h, tf_1h, tf_15m, price):
         elif bias_4h == "BEARISH":
             if e_s1 < e_m1 and rsi_1 < (100 - S["MTF_1H_RSI_CONFIRM"]):
                 dir_1h = "SHORT"
-                reasons.append(f"1h Direction: SHORT (EMA9<{e_m1:.0f}, RSI={rsi_1:.1f})")
+                reasons.append(f"1h Direction: SHORT (EMA9<{e_m1:.0f}, RSI={rsi_1:.1f}, bias={bias_source})")
             elif cfg.TREND_USE_PULLBACK_ENTRY and e_s1 < e_m1 * 1.002 and rsi_1 < 60:
                 dir_1h = "SHORT"
                 reasons.append(f"1h Direction: SHORT pullback (price near EMA21, RSI={rsi_1:.1f})")
@@ -1119,12 +1147,14 @@ def fetch_market(symbol):
     k15 = get_klines(symbol, "15m", 200)
     k30 = get_klines(symbol, "30m", 150)
     k1h = get_klines(symbol, "1h",  150)
+    k2h = get_klines(symbol, "2h",  150)
     k4h = get_klines(symbol, "4h",  150)
 
     tf_5m  = calc_tf_data(k5)  if len(k5)  >= 30 else None
     tf_15m = calc_tf_data(k15) if len(k15) >= 30 else None
     tf_30m = calc_tf_data(k30) if len(k30) >= 30 else None
     tf_1h  = calc_tf_data(k1h) if len(k1h) >= 30 else None
+    tf_2h  = calc_tf_data(k2h) if len(k2h) >= 30 else None
     tf_4h  = calc_tf_data(k4h) if len(k4h) >= 30 else None
 
     entry_tf_used = "15m"
@@ -1156,7 +1186,7 @@ def fetch_market(symbol):
         except:
             pass
 
-    log(f"✅ fetch_market: {symbol} ${price:,.2f} | 5m={bool(tf_5m)} 1h={bool(tf_1h)} 4h={bool(tf_4h)} | funding={funding_rate}%")
+    log(f"✅ fetch_market: {symbol} ${price:,.2f} | 5m={bool(tf_5m)} 1h={bool(tf_1h)} 2h={bool(tf_2h)} 4h={bool(tf_4h)} | funding={funding_rate}%")
 
     # ── Market Context (SET2v2) ───────────────────────────────
     market_ctx = fetch_market_context(symbol)
@@ -1173,6 +1203,7 @@ def fetch_market(symbol):
         "tf_15m": tf_15m,
         "tf_30m": tf_30m,
         "tf_1h":  tf_1h,
+        "tf_2h":  tf_2h,
         "tf_4h":  tf_4h,
         "entry_tf":       entry_tf_used,
         "funding_rate":   funding_rate,
@@ -1194,6 +1225,7 @@ RULES:
 - For REBOUND LONG: accept bearish 4h MACD if rsi_turn_up=true (counter-trend rebound is valid)
 - For REBOUND SHORT: require 4h bearish + rsi_turn_down=true + short_score>=7
 - For TREND_FOLLOW: confirm HTF alignment before entry
+- 2h timeframe is fallback only when 4h bias is neutral; never let 2h override clear 4h bias
 - Countertrend without rejection confirmation → REJECTED
 
 MARKET CONTEXT (use as supporting evidence, not primary signal):
@@ -1260,6 +1292,7 @@ def call_claude(symbol, direction, strategy, summary):
 def build_summary(m, regime, strategy, tf_bk, rb_data=None, direction=None):
     t15 = m["tf_15m"] or {}
     t1h = m["tf_1h"]  or {}
+    t2h = m.get("tf_2h") or {}
     t4h = m["tf_4h"]  or {}
 
     def r2(v): return round(v, 2) if v is not None else None
@@ -1282,6 +1315,10 @@ def build_summary(m, regime, strategy, tf_bk, rb_data=None, direction=None):
             "1h": {
                 "ema9":  r2(t1h.get("ema_short")), "ema21": r2(t1h.get("ema_mid")),
                 "rsi":   r2(t1h.get("rsi")),       "macd_h": r2(t1h.get("macd_hist")),
+            },
+            "2h": {
+                "ema9":  r2(t2h.get("ema_short")), "ema21": r2(t2h.get("ema_mid")),
+                "rsi":   r2(t2h.get("rsi")),       "macd_h": r2(t2h.get("macd_hist")),
             },
             "15m": {
                 "ema9":  r2(t15.get("ema_short")), "ema21": r2(t15.get("ema_mid")),
@@ -1663,6 +1700,7 @@ def build_signal(symbol, direction, m, verdict, conf, levels,
     t15 = m.get("tf_15m") or {}
     t30 = m.get("tf_30m") or {}
     t1h = m.get("tf_1h")  or {}
+    t2h = m.get("tf_2h")  or {}
     t4h = m.get("tf_4h")  or {}
 
     is_tradeable  = verdict in ("APPROVED", "WEAK APPROVAL")
@@ -1722,6 +1760,8 @@ def build_signal(symbol, direction, m, verdict, conf, levels,
                     "bb_pct": t30.get("bb_pct"), "vol_ratio": t30.get("vol_ratio")} if t30 else {},
             "1h":  {"rsi": t1h.get("rsi"), "macd_hist": t1h.get("macd_hist"),
                     "ema_short": t1h.get("ema_short"), "ema_mid": t1h.get("ema_mid")},
+            "2h":  {"rsi": t2h.get("rsi"), "macd_hist": t2h.get("macd_hist"),
+                    "ema_short": t2h.get("ema_short"), "ema_mid": t2h.get("ema_mid")} if t2h else {},
             "4h":  {"rsi": t4h.get("rsi"), "macd_hist": t4h.get("macd_hist")},
         },
         "verdict": verdict, "conf": conf,
@@ -1784,7 +1824,8 @@ def main():
         if regime == "TRENDING":
             strategy = "TREND_FOLLOW"
             passed, direction, reasons, tf_bk = check_multi_tf(
-                m["tf_4h"], m["tf_1h"], m["tf_15m"], m["price"])
+                m["tf_4h"], m["tf_1h"], m["tf_15m"], m["price"],
+                tf_2h=m.get("tf_2h"), market_ctx=m.get("market_ctx"))
             filter_reason = " | ".join(reasons)
             pre_conf = 75 if passed else (55 if tf_bk.get("4h",{}).get("bias") != "NEUTRAL" else 20)
             log(f"  📈 Strategy: TREND_FOLLOW | {'✅ PASS' if passed else '⏭ SKIP'}: {filter_reason[:80]}")
@@ -1940,7 +1981,7 @@ def main():
 
             if strategy == "TREND_FOLLOW":
                 # TREND_FOLLOW: EMA aligned ถูกต้อง — คงเดิม
-                if pre_conf >= cfg.AUTO_APPROVE_CONF:
+                if pre_conf >= cfg.AUTO_APPROVE_CONF and not tf_bk.get("bias_fallback"):
                     if direction == "Long" and ema_15m_bull and ema_1h_bull:
                         auto_approved = True
                         auto_approve_reason = f"TREND_FOLLOW: pre={pre_conf}% + EMA bull aligned"
