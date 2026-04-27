@@ -215,13 +215,29 @@ def save_json(path, data):
     except Exception as e:
         print(f"Save error: {e}")
 
-def get_display_signal_logs():
+def _signal_score(sig):
+    vals = []
+    for key in ("conf", "pre_conf"):
+        try:
+            vals.append(int(sig.get(key) or 0))
+        except (TypeError, ValueError):
+            vals.append(0)
+    return max(vals) if vals else 0
+
+def _is_display_signal(sig):
+    gate = str(sig.get("gate_path", ""))
+    direction = sig.get("direction")
+
+    if gate in ("VOLATILE_BLOCK", "TIER3_NO_DIRECTION", "T4_NO_DIRECTION",
+                "TIER4_NO_DIRECTION", "MANUAL_T3_NO_DIRECTION"):
+        return False
+    if direction not in ("Long", "Short"):
+        return False
+    return _signal_score(sig) >= cfg.FILTER_MIN_CONF
+
+def get_display_signal_logs(include_audit=False):
     logs = load_json(cfg.LOG_FILE)
-    display_logs = [
-        s for s in logs
-        if (s.get("pre_conf") or 0) >= cfg.FILTER_MIN_CONF
-        or s.get("gate_path", "") != "TIER1_FILTERED"
-    ]
+    display_logs = logs[:] if include_audit else [s for s in logs if _is_display_signal(s)]
     display_logs.sort(key=lambda s: s.get("time", ""), reverse=True)
     return logs, display_logs
 
@@ -324,7 +340,8 @@ def api_binance():
 
 @app.route("/api/signals")
 def api_signals():
-    raw_logs, display_logs = get_display_signal_logs()
+    include_audit = request.args.get("include_audit") == "1"
+    raw_logs, display_logs = get_display_signal_logs(include_audit=include_audit)
     filtered = display_logs
     limit   = min(int(request.args.get("limit", 400)), 500)
     verdict = request.args.get("verdict", "all").upper()
