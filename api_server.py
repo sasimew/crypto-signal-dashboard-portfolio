@@ -12,12 +12,18 @@ TZ_THAI = timezone(timedelta(hours=7))
 def now_thai(): return datetime.now(TZ_THAI)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import config as cfg
+try:
+    import config_set2 as cfg
+except ImportError:
+    import config as cfg
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
-import bot as bot_module
+try:
+    import bot_set2 as bot_module
+except ImportError:
+    import bot as bot_module
 
 app = Flask(__name__, static_folder=cfg.BASE_DIR)
 CORS(app)
@@ -238,7 +244,7 @@ def send_telegram_msg(msg):
 # ─── ROUTES ───────────────────────────────────────────────
 @app.route("/")
 def root():
-    return jsonify({"status": "ok", "version": "SET1v4", "dashboard": "/dashboard"})
+    return jsonify({"status": "ok", "version": getattr(cfg, "BOT_VERSION", "unknown"), "dashboard": "/dashboard"})
 
 @app.route("/dashboard")
 @app.route("/dashboard/")
@@ -268,7 +274,7 @@ def health():
     return jsonify({
         "status": "ok",
         "time": now_thai().strftime('%Y-%m-%d %H:%M:%S TH'),
-        "version": "SET1v4",
+        "version": getattr(cfg, "BOT_VERSION", "unknown"),
         "cron_running": cron_running,
         "cron_last_seen": cron_last_seen,
     })
@@ -341,20 +347,20 @@ def api_signals():
 
 @app.route("/api/stats")
 def api_stats():
-    raw_logs, logs = get_display_signal_logs()
-    total      = len(logs)
-    n_filtered = sum(1 for s in logs if s.get("verdict")=="FILTERED")
-    n_volatile = sum(1 for s in logs if s.get("regime")=="VOLATILE")
-    claude_used= sum(1 for s in logs if s.get("claude_called"))
-    approved   = sum(1 for s in logs if s.get("verdict") in ("APPROVED","WEAK APPROVAL"))
-    rejected   = sum(1 for s in logs if s.get("verdict") in ("REJECTED","NO TRADE"))
+    raw_logs, display_logs = get_display_signal_logs()
+    total      = len(raw_logs)
+    n_filtered = sum(1 for s in raw_logs if s.get("verdict")=="FILTERED")
+    n_volatile = sum(1 for s in raw_logs if s.get("regime")=="VOLATILE")
+    claude_used= sum(1 for s in raw_logs if s.get("claude_called"))
+    approved   = sum(1 for s in raw_logs if s.get("verdict") in ("APPROVED","WEAK APPROVAL"))
+    rejected   = sum(1 for s in raw_logs if s.get("verdict") in ("REJECTED","NO TRADE"))
 
     # By strategy
-    trend_sigs  = [s for s in logs if s.get("strategy_used")=="TREND_FOLLOW"]
-    rebound_sigs= [s for s in logs if s.get("strategy_used")=="REBOUND"]
+    trend_sigs  = [s for s in raw_logs if s.get("strategy_used")=="TREND_FOLLOW"]
+    rebound_sigs= [s for s in raw_logs if s.get("strategy_used")=="REBOUND"]
 
     # Win rate
-    rechecked = [s for s in logs if s.get("recheck")]
+    rechecked = [s for s in raw_logs if s.get("recheck")]
     wins      = [s for s in rechecked if "WIN"  in (s["recheck"].get("outcome",""))]
     losses    = [s for s in rechecked if "LOSS" in (s["recheck"].get("outcome",""))]
     win_rate  = round(len(wins)/(len(wins)+len(losses))*100) if (wins or losses) else None
@@ -362,19 +368,19 @@ def api_stats():
     # Regime breakdown
     regime_counts = {}
     for r in ["TRENDING","RANGING","VOLATILE","MIXED"]:
-        regime_counts[r] = sum(1 for s in logs if s.get("regime")==r)
+        regime_counts[r] = sum(1 for s in raw_logs if s.get("regime")==r)
 
     # Cost estimate (Haiku)
     est_cost = (claude_used * 400/1e6 * 0.80) + (claude_used * 300/1e6 * 4.0)
 
     # BUG-10 FIX: ใช้ TH timezone ไม่ใช่ UTC (เวลาไทย +7)
     today      = datetime.now(TZ_THAI).date()
-    today_sigs = [s for s in logs if s.get("time","")[:10]==str(today)]
+    today_sigs = [s for s in raw_logs if s.get("time","")[:10]==str(today)]
     today_approved = sum(1 for s in today_sigs if s.get("verdict") in ("APPROVED", "WEAK APPROVAL"))
 
     by_symbol = {}
     for sym in cfg.SYMBOLS:
-        sl = [s for s in logs if s.get("symbol")==sym]
+        sl = [s for s in raw_logs if s.get("symbol")==sym]
         by_symbol[sym] = {
             "total":    len(sl),
             "approved": sum(1 for s in sl if s.get("verdict") in ("APPROVED","WEAK APPROVAL")),
@@ -384,11 +390,11 @@ def api_stats():
         }
 
     gate_counts = {
-        "t1": sum(1 for s in logs if str(s.get("gate_path","")).startswith("TIER1")),
-        "t2": sum(1 for s in logs if str(s.get("gate_path","")).startswith("TIER2")),
-        "t3": sum(1 for s in logs if str(s.get("gate_path","")).startswith("TIER3")),
-        "t4": sum(1 for s in logs if str(s.get("gate_path","")).startswith("TIER4") or str(s.get("gate_path","")).startswith("MANUAL_CLAUDE")),
-        "t5": sum(1 for s in logs if str(s.get("gate_path","")).startswith("TIER5")),
+        "t1": sum(1 for s in raw_logs if str(s.get("gate_path","")).startswith("TIER1")),
+        "t2": sum(1 for s in raw_logs if str(s.get("gate_path","")).startswith("TIER2")),
+        "t3": sum(1 for s in raw_logs if str(s.get("gate_path","")).startswith("TIER3")),
+        "t4": sum(1 for s in raw_logs if str(s.get("gate_path","")).startswith("TIER4") or str(s.get("gate_path","")).startswith("MANUAL_CLAUDE")),
+        "t5": sum(1 for s in raw_logs if str(s.get("gate_path","")).startswith("TIER5")),
     }
 
     return jsonify({
@@ -411,7 +417,7 @@ def api_stats():
             "TREND_FOLLOW": len(trend_sigs),
             "REBOUND":      len(rebound_sigs),
         },
-        "raw_total_signals": len(raw_logs),
+        "display_total_signals": len(display_logs),
         "_gate_counts": gate_counts,
         "by_symbol": by_symbol,
     })
@@ -430,16 +436,31 @@ def api_recheck():
     from_date = request.args.get("from", "").strip()
     to_date = request.args.get("to", "").strip()
 
-    signal_logs = [s for s in signal_logs if (s.get("conf") or 0) >= 50]
+    signal_logs = [
+        s for s in signal_logs
+        if (s.get("conf") or 0) >= 70
+        and s.get("direction") in ("Long", "Short")
+    ]
 
     by_signal_id = {s.get("id"): s for s in signal_logs if s.get("id")}
-    recheck_by_signal = {r.get("signal_id"): r for r in rechk if r.get("signal_id")}
+    recheck_by_signal = {}
+    for r in rechk:
+        sig_id = r.get("signal_id")
+        if sig_id and sig_id not in recheck_by_signal:
+            recheck_by_signal[sig_id] = r
+
+    def coalesce(*vals):
+        for v in vals:
+            if v not in (None, "", "—"):
+                return v
+        return None
 
     rows = []
     for s in signal_logs:
         sig_id = s.get("id")
         sig_date = (s.get("time") or "")[:10]
         rr = recheck_by_signal.get(sig_id, {})
+        sr = s.get("recheck") or {}
         rows.append({
             "signal_id": sig_id,
             "symbol": s.get("symbol"),
@@ -448,23 +469,23 @@ def api_recheck():
             "conf": s.get("conf"),
             "pre_conf": s.get("pre_conf"),
             "gate_path": s.get("gate_path", "—"),
-            "strategy": rr.get("strategy", s.get("strategy_used", "—")),
-            "regime": rr.get("regime", s.get("regime", "—")),
-            "entry": rr.get("entry", s.get("entry")),
-            "ssl": rr.get("ssl", s.get("ssl")),
-            "hsl": rr.get("hsl", s.get("hsl")),
-            "tp1": rr.get("tp1", s.get("tp1")),
-            "tp2": rr.get("tp2", s.get("tp2")),
-            "tp3": rr.get("tp3", s.get("tp3")),
-            "current_price": rr.get("current_price"),
-            "outcome": rr.get("outcome"),
-            "pnl_pct": rr.get("pnl_pct"),
-            "level_hit": rr.get("level_hit"),
+            "strategy": coalesce(rr.get("strategy"), s.get("strategy_used"), "—"),
+            "regime": coalesce(rr.get("regime"), s.get("regime"), "—"),
+            "entry": coalesce(rr.get("entry"), s.get("entry"), s.get("suggested_entry")),
+            "ssl": coalesce(rr.get("ssl"), s.get("ssl"), s.get("suggested_ssl")),
+            "hsl": coalesce(rr.get("hsl"), s.get("hsl"), s.get("suggested_hsl")),
+            "tp1": coalesce(rr.get("tp1"), s.get("tp1"), s.get("suggested_tp1")),
+            "tp2": coalesce(rr.get("tp2"), s.get("tp2"), s.get("suggested_tp2")),
+            "tp3": coalesce(rr.get("tp3"), s.get("tp3"), s.get("suggested_tp3")),
+            "current_price": coalesce(rr.get("current_price"), sr.get("price")),
+            "outcome": coalesce(rr.get("outcome"), sr.get("outcome")),
+            "pnl_pct": coalesce(rr.get("pnl_pct"), sr.get("pnl_pct")),
+            "level_hit": coalesce(rr.get("level_hit"), sr.get("level_hit"), "—"),
             "reason": s.get("reject_reason") or s.get("reason") or s.get("filter_reason"),
             "signal_time": s.get("time"),
             "signal_time_thai": s.get("time_thai"),
-            "recheck_date": rr.get("recheck_date", sig_date),
-            "time": rr.get("time", s.get("time")),
+            "recheck_date": coalesce(rr.get("recheck_date"), sr.get("recheck_date"), sig_date),
+            "time": coalesce(rr.get("time"), sr.get("time"), s.get("time")),
         })
 
     available_dates = sorted({
@@ -608,6 +629,11 @@ def api_analyze():
     body      = request.get_json() or {}
     symbol    = body.get("symbol", "BTCUSDT")
     direction = body.get("direction", "Long")  # manual override
+    if direction not in ("Long", "Short"):
+        return jsonify({
+            "ok": False,
+            "error": "Invalid direction. Manual analysis requires Long or Short."
+        }), 400
 
     try:
         # ── Step 1: ดึงข้อมูล ─────────────────────────────────
@@ -641,6 +667,8 @@ def api_analyze():
         final_direction = direction
         passed = False
         pre_conf = 0
+        selected_score = None
+        opposite_score = None
 
         if regime == "VOLATILE":
             filter_reason = f"⚠️ VOLATILE market — manual override {direction}"
@@ -649,10 +677,16 @@ def api_analyze():
             strategy = "TREND_FOLLOW"
             passed, auto_dir, reasons, tf_bk = bot_module.check_multi_tf(
                 t4h, t1h, t15, m["price"])
+            if auto_dir not in ("N/A", direction):
+                passed = False
+                reasons.append(f"Manual {direction} selected, but trend alignment prefers {auto_dir}")
             filter_reason = " | ".join(reasons)
-            if passed and auto_dir != "N/A":
-                final_direction = auto_dir
-            pre_conf = 70 if passed else (50 if tf_bk.get("4h",{}).get("bias") != "NEUTRAL" else 20)
+            if passed and auto_dir == direction:
+                pre_conf = 70
+            elif auto_dir == direction:
+                pre_conf = 50
+            else:
+                pre_conf = 20
 
         elif regime in ("RANGING","MIXED"):
             strategy = "REBOUND"
@@ -665,19 +699,23 @@ def api_analyze():
                 tf_4h        = t4h,
                 tf_15m       = t15,
             )
+            if auto_dir not in ("N/A", direction):
+                passed = False
+                reasons.append(f"Manual {direction} selected, but rebound setup prefers {auto_dir}")
             filter_reason = " | ".join(reasons)
-            if passed and auto_dir != "N/A":
-                final_direction = auto_dir
             long_score  = rb_data.get("long_score", 0)
             short_score = rb_data.get("short_score", 0)
-            pre_conf = min(round(max(long_score, short_score) / cfg.REBOUND_MAX_SCORE * 100), 95)
+            selected_score = long_score if direction == "Long" else short_score
+            opposite_score = short_score if direction == "Long" else long_score
+            pre_conf = bot_module.compute_pre_conf(long_score, short_score, direction)
 
         # ── Step 4: 5-Tier Gate (same as bot.py) ─────────────
         #
         # Tier 5: pre_conf >= AUTO_APPROVE_CONF + alignment → APPROVED (no Claude)
         # Tier 4: pre_conf >= CLAUDE_MIN_CONF              → Claude validates
         # Tier 3: pre_conf >= WEAK_MIN_CONF, not passed    → NO TRADE
-        # Manual override: ถ้าไม่มี pre_conf (regime=VOLATILE/MANUAL) → ส่ง Claude เสมอ
+        # Manual analysis follows the same bot gate before Claude to avoid
+        # conflicting manual scores for the same market snapshot.
 
         # ── Tier 5: AUTO APPROVE ──────────────────────────────
         auto_approved = False
@@ -722,14 +760,49 @@ def api_analyze():
                 tg_reason = "not sent (missing trade levels)"
             return jsonify({"ok": True, "signal": sig, "tg_sent": tg_sent, "tg_reason": tg_reason})
 
+        # Manual follows bot gates: low-confidence or directionless requests are logged
+        # as NO TRADE instead of letting Claude create conflicting manual scores.
+        if final_direction not in ("Long", "Short"):
+            sig = bot_module.build_signal(
+                symbol, final_direction, m, "NO TRADE", pre_conf, {},
+                f"Direction={final_direction}: no valid long/short signal to validate",
+                regime, regime_conf, regime_reasons,
+                strategy, filter_reason, tf_bk, rb_data,
+                gate_path="MANUAL_NO_DIRECTION",
+                pre_conf=pre_conf,
+                claude_called=False
+            )
+            logs = load_json(cfg.LOG_FILE)
+            sig["reject_reason"] = f"Direction={final_direction}: no valid long/short signal to validate"
+            logs.insert(0, sig)
+            save_json(cfg.LOG_FILE, logs)
+            return jsonify({"ok": True, "signal": sig, "tg_sent": False, "tg_reason": "not sent (NO TRADE)"})
+
+        if pre_conf < cfg.CLAUDE_MIN_CONF and not passed:
+            sig = bot_module.build_signal(
+                symbol, final_direction, m, "NO TRADE", pre_conf, {},
+                f"Manual bot gate: pre_conf={pre_conf}% below Claude gate, filter not passed",
+                regime, regime_conf, regime_reasons,
+                strategy, filter_reason, tf_bk, rb_data,
+                gate_path="MANUAL_BOT_REJECT",
+                pre_conf=pre_conf,
+                claude_called=False
+            )
+            logs = load_json(cfg.LOG_FILE)
+            sig["reject_reason"] = f"Manual bot gate: pre_conf={pre_conf}% below Claude gate, filter not passed"
+            logs.insert(0, sig)
+            save_json(cfg.LOG_FILE, logs)
+            return jsonify({"ok": True, "signal": sig, "tg_sent": False, "tg_reason": "not sent (NO TRADE)"})
+
         # ── Tier 4: Claude validates ──────────────────────────
-        # (also handles manual/volatile where pre_conf=0 — always send to Claude)
         summary  = bot_module.build_summary(m, regime, strategy, tf_bk, rb_data, direction=final_direction)  # BUG-08 FIX
         ai_text  = bot_module.call_claude(symbol, final_direction, strategy, summary)
         verdict, conf, levels = bot_module.parse_ai(ai_text)
 
         if not levels.get("entry"):
             levels["entry"] = str(round(m["price"], 2))
+
+        confidence_for_levels = max(pre_conf, conf) if pre_conf > 0 else conf
 
         # ✅ Fallback TP/SL — TRADEABLE only
         if verdict in ("APPROVED", "WEAK APPROVAL"):
@@ -739,9 +812,18 @@ def api_analyze():
             if not levels.get("tp1"):  levels["tp1"] = fallback["tp1"]
             if not levels.get("tp2"):  levels["tp2"] = fallback["tp2"]
             if not levels.get("tp3"):  levels["tp3"] = fallback["tp3"]
+        elif confidence_for_levels >= 50:
+            fallback = bot_module.calc_fallback_levels(m["price"], final_direction)
+            levels["suggested_entry"] = levels.get("entry") or str(round(m["price"], 2))
+            levels["suggested_ssl"] = levels.get("ssl") or fallback["ssl"]
+            levels["suggested_hsl"] = levels.get("hsl") or fallback["hsl"]
+            levels["suggested_tp1"] = levels.get("tp1") or fallback["tp1"]
+            levels["suggested_tp2"] = levels.get("tp2") or fallback["tp2"]
+            levels["suggested_tp3"] = levels.get("tp3") or fallback["tp3"]
 
-        # use max of bot pre_conf and claude conf for display
-        display_conf = max(pre_conf, conf) if pre_conf > 0 else conf
+        # Manual log score must stay aligned with bot scoring; Claude confidence is kept
+        # separately for audit so manual Long/Short clicks cannot create conflicting scores.
+        display_conf = pre_conf if pre_conf > 0 else conf
         gate = "TIER4_CLAUDE" if pre_conf >= cfg.CLAUDE_MIN_CONF else "MANUAL_CLAUDE"
 
         # ── Step 5: Build Signal ──────────────────────────────
@@ -753,6 +835,10 @@ def api_analyze():
             pre_conf=pre_conf,
             claude_called=True
         )
+        if selected_score is not None:
+            sig["selected_score"] = selected_score
+            sig["opposite_score"] = opposite_score
+        sig["ai_conf"] = conf
 
         # ── Step 6: บันทึก log ───────────────────────────────
         logs = load_json(cfg.LOG_FILE)
@@ -787,7 +873,13 @@ def api_analyze():
     except ValueError as e:
         return jsonify({"ok": False, "error": str(e)}), 400
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        error_type, error_desc = bot_module.classify_runtime_error(e)
+        return jsonify({
+            "ok": False,
+            "error": str(e),
+            "error_type": error_type,
+            "error_desc": error_desc,
+        }), 500
 
 @app.route("/api/export")
 def api_export():
@@ -931,11 +1023,48 @@ def _fmt(v):
 def _rsi_line(sig):
     ind = sig.get("indicators", {})
     t15 = ind.get("15m",{}); t1h = ind.get("1h",{}); t4h = ind.get("4h",{})
-    return f"📊 *RSI* 15m:{t15.get('rsi','—')} 1h:{t1h.get('rsi','—')} 4h:{t4h.get('rsi','—')}\n"
+    return f"📊 RSI 15m:{t15.get('rsi','—')} | 1h:{t1h.get('rsi','—')} | 4h:{t4h.get('rsi','—')}\n"
+
+def _tg_escape(value, limit=None):
+    text = "" if value is None else str(value)
+    if limit is not None:
+        text = text[:limit]
+    for ch in (chr(92), "_", "*", "`", "["):
+        text = text.replace(ch, chr(92) + ch)
+    return text
+
+def _tg_pct_text(entry, target, direction):
+    try:
+        e = float(entry); t = float(target)
+        if e == 0:
+            return ""
+        pct = ((t - e) / e * 100.0) if direction == "Long" else ((e - t) / e * 100.0)
+        sign = "+" if pct > 0 else ""
+        return f"({sign}{pct:.1f}%)"
+    except Exception:
+        return ""
+
+def _tg_level_line(icon, label, value, entry, direction, extra=""):
+    rendered = _fmt(value) if value is not None else "—"
+    pct = _tg_pct_text(entry, value, direction) if value is not None else ""
+    suffix = f" {extra}" if extra else ""
+    details = " ".join([x for x in [pct, suffix.strip()] if x]).strip()
+    return f"{icon} {label}: {rendered}" + (f" {details}" if details else "") + "\n"
+
+def _tg_header(title, badge, subtitle=None):
+    msg = f"{title}\n⚡ *{badge}*\n"
+    if subtitle:
+        msg += f"_{subtitle}_\n"
+    msg += "━━━━━━\n\n"
+    return msg
 
 def tg_trade_eligible(sig):
+    is_manual_trade = (
+        str(sig.get("gate_path", "")).startswith("MANUAL")
+        and (sig.get("conf") or 0) >= 70
+    )
     return bool(
-        sig.get("verdict") in ("APPROVED", "WEAK APPROVAL")
+        (sig.get("verdict") in ("APPROVED", "WEAK APPROVAL") or is_manual_trade)
         and sig.get("symbol")
         and sig.get("direction")
         and sig.get("entry")
@@ -944,105 +1073,161 @@ def tg_trade_eligible(sig):
     )
 
 def build_tg_trade_msg(sig):
-    """✅ APPROVED / ⚠️ WEAK APPROVAL — full trade alert"""
+    """Trade alert for APPROVED / WEAK APPROVAL / eligible MANUAL signals."""
     verdict = sig["verdict"]
-    icon    = "✅" if verdict == "APPROVED" else "⚠️"
-    sym     = sig["symbol"].replace("USDT","")
-    dicon   = "🟢 LONG" if sig["direction"]=="Long" else "🔴 SHORT"
-    size_note = "" if verdict == "APPROVED" else " _(ลด size)_"
-    regime  = sig.get("regime","—")
-    strat   = sig.get("strategy_used","—")
-    gate    = sig.get("gate_path","—")
-    regime_icon = {"TRENDING":"📈","RANGING":"↔️","VOLATILE":"⚡","MIXED":"❓"}.get(regime,"🔸")
+    is_manual_trade = (
+        str(sig.get("gate_path", "")).startswith("MANUAL")
+        and verdict not in ("APPROVED", "WEAK APPROVAL")
+    )
+    label = "MANUAL SIGNAL" if is_manual_trade else ("APPROVED SIGNAL" if verdict == "APPROVED" else "WEAK APPROVAL")
+    sym = sig["symbol"].replace("USDT", "")
+    direction = sig["direction"]
+    title = ("🟢 LONG" if direction == "Long" else "🔴 SHORT") + f" {sym}/USDT | Conf: {sig.get('conf', '—')}/100"
+    regime = sig.get("regime", "—")
+    strat = sig.get("strategy_used", "—")
+    gate = sig.get("gate_path", "—")
+    subtitle = None
+    if verdict == "WEAK APPROVAL":
+        subtitle = "trade ได้ แต่ควรลด size หรือรอ confirmation เพิ่ม"
+    elif is_manual_trade:
+        subtitle = "manual trigger — ใช้ระดับราคาเดียวกับ dashboard"
 
-    msg  = f"{icon} *{verdict}* — {dicon} *{sym}/USDT*{size_note}\n"
-    msg += f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"🕐 *{now_thai().strftime('%H:%M TH')}* | Conf: *{sig['conf']}/100*\n"
-    msg += f"{regime_icon} {regime} | Strategy: *{strat}* | Gate: `{gate}`\n\n"
-    msg += f"💰 *Entry:*   {_fmt(sig.get('entry'))}\n"
-    msg += f"🎯 *TP1:*     {_fmt(sig.get('tp1'))}\n"
-    msg += f"🎯 *TP2:*     {_fmt(sig.get('tp2'))}\n"
-    msg += f"🎯 *TP3:*     {_fmt(sig.get('tp3'))}\n"
-    msg += f"🛡 *Soft SL:* {_fmt(sig.get('ssl'))}\n"
-    msg += f"🛑 *Hard SL:* {_fmt(sig.get('hsl'))}\n\n"
+    msg = _tg_header(title, label, subtitle)
+    msg += f"🕐 {now_thai().strftime('%H:%M')} TH\n"
+    msg += f"📍 {_tg_escape(regime)} | Strategy: {_tg_escape(strat)}\n"
+    msg += f"🔀 Gate: {_tg_escape(gate)}\n\n"
+    msg += _tg_level_line("💰", "Entry", sig.get("entry"), sig.get("entry"), direction, "(ตลาด)")
+    msg += _tg_level_line("🎯", "TP1", sig.get("tp1"), sig.get("entry"), direction)
+    msg += _tg_level_line("🎯", "TP2", sig.get("tp2"), sig.get("entry"), direction)
+    msg += _tg_level_line("🎯", "TP3", sig.get("tp3"), sig.get("entry"), direction)
+    msg += _tg_level_line("🛡", "Soft SL", sig.get("ssl"), sig.get("entry"), direction)
+    msg += _tg_level_line("🛑", "Hard SL", sig.get("hsl"), sig.get("entry"), direction)
+    msg += "\n"
     msg += _rsi_line(sig)
-    ind   = sig.get("indicators",{}); t15 = ind.get("15m",{})
-    msg += f"📈 *MACD hist:* {t15.get('macd_hist','—')}\n"
-    if t15.get('vol_ratio'): msg += f"📦 *Volume:* {t15['vol_ratio']:.1f}x avg\n"
-    if sig.get("reason"): msg += f"\n💬 {str(sig['reason'])[:200]}\n"
-    msg += f"\n_⚡ sasi.asia/dashboard · {cfg.BOT_VERSION}_"
+    ind = sig.get("indicators", {})
+    t15 = ind.get("15m", {})
+    msg += f"📈 MACD hist 15m: {t15.get('macd_hist', '—')}\n"
+    if t15.get("vol_ratio"):
+        msg += f"📦 Volume: {t15['vol_ratio']:.1f}x avg\n"
+    if sig.get("funding_rate") is not None:
+        msg += f"💸 Funding: {sig.get('funding_rate'):+.4f}%\n"
+    if sig.get("risk_flags"):
+        msg += f"\n⚠️ ความเสี่ยง: {_tg_escape(sig['risk_flags'][0], 180)}\n"
+    if sig.get("reason"):
+        msg += f"\n💬 {_tg_escape(sig['reason'], 260)}\n"
     return msg
 
 # Keep old name as alias for callers
 build_tg_msg = build_tg_trade_msg
 
-def build_tg_rejected_msg(sig):
-    """❌ REJECTED — blocked format, NO trade fields"""
-    sym    = sig["symbol"].replace("USDT","")
-    dicon  = "🟢 LONG" if sig["direction"]=="Long" else "🔴 SHORT"
-    regime = sig.get("regime","—")
-    strat  = sig.get("strategy_used","—")
-    rc     = sig.get("reason_code","—")
-    reason = sig.get("reject_reason") or sig.get("reason") or "ไม่มีรายละเอียด"
-    regime_icon = {"TRENDING":"📈","RANGING":"↔️","VOLATILE":"⚡","MIXED":"❓"}.get(regime,"🔸")
 
-    msg  = f"❌ *REJECTED* — {dicon} *{sym}/USDT*\n"
-    msg += f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"🕐 *{now_thai().strftime('%H:%M TH')}* | Conf: *{sig['conf']}/100*\n"
-    msg += f"{regime_icon} {regime} | Strategy: *{strat}*\n\n"
-    msg += f"🚫 *Claude ปฏิเสธ signal นี้*\n"
-    if rc and rc != "—": msg += f"📋 Code: `{rc}`\n"
-    msg += f"💬 {str(reason)[:300]}\n\n"
+def build_tg_rejected_msg(sig):
+    """Rejected alert in the same visual style, with full levels for dashboard consistency."""
+    sym = sig["symbol"].replace("USDT", "")
+    direction = sig["direction"]
+    gate = str(sig.get("gate_path", ""))
+    manual_suffix = " (manual)" if gate.startswith("MANUAL") else ""
+    title = ("🟢 LONG" if direction == "Long" else "🔴 SHORT") + f" {sym}/USDT | Conf: {sig.get('conf', '—')}/100{manual_suffix}"
+    regime = sig.get("regime", "—")
+    strat = sig.get("strategy_used", "—")
+    rc = sig.get("reason_code", "—")
+    reason = sig.get("reject_reason") or sig.get("reason") or "ไม่มีรายละเอียด"
+    ind = sig.get("indicators", {})
+    t15 = ind.get("15m", {})
+
+    msg = _tg_header(title, "REJECTED")
+    msg += f"🕐 {now_thai().strftime('%H:%M')} TH\n"
+    msg += f"📍 {_tg_escape(_fmt_regime(regime))} | Strategy: {_tg_escape(strat)}\n"
+    if gate:
+        msg += f"🔀 Gate: {_tg_escape(gate)}\n"
+    msg += "\n"
+    msg += _tg_level_line("💰", "Entry", sig.get("entry"), sig.get("entry"), direction)
+    msg += _tg_level_line("🎯", "TP1", sig.get("tp1"), sig.get("entry"), direction)
+    msg += _tg_level_line("🎯", "TP2", sig.get("tp2"), sig.get("entry"), direction)
+    msg += _tg_level_line("🎯", "TP3", sig.get("tp3"), sig.get("entry"), direction)
+    msg += _tg_level_line("🛡", "Soft SL", sig.get("ssl"), sig.get("entry"), direction)
+    msg += _tg_level_line("🛑", "Hard SL", sig.get("hsl"), sig.get("entry"), direction)
+    msg += "\n"
+    if rc and rc != "—":
+        msg += f"📋 Code: {_tg_escape(rc)}\n"
     msg += _rsi_line(sig)
-    msg += f"\n_ไม่เทรด — ดูรายละเอียดบน dashboard_\n"
-    msg += f"_⚡ sasi.asia/dashboard · {cfg.BOT_VERSION}_"
+    msg += f"📈 MACD hist 15m: {t15.get('macd_hist', '—')}\n"
+    if t15.get("vol_ratio"):
+        msg += f"📦 Volume: {t15['vol_ratio']:.1f}x avg\n"
+    if sig.get("funding_rate") is not None:
+        msg += f"💸 Funding: {sig.get('funding_rate'):+.4f}%\n"
+    msg += f"\n💬 {_tg_escape(reason, 320)}\n"
+    msg += "\n━━━━━━"
     return msg
 
 def build_tg_rebound_alert(sig, rb_data):
-    """
-    ↩️ REBOUND APPROVED/WEAK signal — includes rebound scoring + trade levels.
-    CRITICAL: ต้อง call เฉพาะ verdict APPROVED / WEAK APPROVAL เท่านั้น
-    """
+    """Rebound alert with the unified Telegram layout."""
     verdict = sig["verdict"]
-    # Hard guard — ถ้า verdict ไม่ใช่ tradeable ให้ fallback เป็น rejected msg
-    if verdict not in ("APPROVED", "WEAK APPROVAL"):
-        return build_tg_rejected_msg(sig)
+    is_manual_trade = (
+        str(sig.get("gate_path", "")).startswith("MANUAL")
+        and sig.get("entry")
+        and sig.get("tp1")
+        and (sig.get("hsl") or sig.get("ssl"))
+        and (sig.get("conf") or 0) >= 70
+    )
+    sym = sig["symbol"].replace("USDT", "")
+    direction = sig["direction"]
+    title = ("🟢 LONG" if direction == "Long" else "🔴 SHORT") + f" {sym}/USDT | Conf: {sig.get('conf', '—')}/100"
+    if is_manual_trade:
+        label = "MANUAL SIGNAL"
+        subtitle = "rebound setup — ใช้ระดับราคาตาม dashboard"
+    elif verdict == "APPROVED":
+        label = "APPROVED SIGNAL"
+        subtitle = "rebound setup — tradeable"
+    elif verdict == "WEAK APPROVAL":
+        label = "WEAK APPROVAL"
+        subtitle = "rebound setup — trade ได้แต่ควรลด size"
+    else:
+        label = "REJECTED"
+        subtitle = "rebound setup — ไม่เทรด แต่ส่งเพื่อ review"
+    regime = sig.get("regime", "—")
+    strat = sig.get("strategy_used", "—")
+    gate = sig.get("gate_path", "—")
 
-    sym    = sig["symbol"].replace("USDT","")
-    dicon  = "🟢 LONG" if sig["direction"]=="Long" else "🔴 SHORT"
-    icon   = "✅" if verdict == "APPROVED" else "⚠️"
-    size_note = "" if verdict == "APPROVED" else " _(ลด size)_"
-
-    msg  = f"↩️ *REBOUND* {icon} *{verdict}* — {dicon} *{sym}/USDT*{size_note}\n"
-    msg += f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    msg += f"🕐 *{now_thai().strftime('%H:%M TH')}* | Conf: *{sig['conf']}/100*\n\n"
-    msg += f"💰 *Entry:*   {_fmt(sig.get('entry'))}\n"
-    msg += f"🎯 *TP1:*     {_fmt(sig.get('tp1'))}\n"
-    msg += f"🎯 *TP2:*     {_fmt(sig.get('tp2'))}\n"
-    msg += f"🛡 *Soft SL:* {_fmt(sig.get('ssl'))}\n"
-    msg += f"🛑 *Hard SL:* {_fmt(sig.get('hsl'))}\n\n"
-    msg += f"📊 *30m Score:* L={rb_data.get('long_score',0)} S={rb_data.get('short_score',0)}\n"
-    msg += f"BB%B: {rb_data.get('bb_pct','—')} | RSI: {rb_data.get('rsi','—')} | Vol: {rb_data.get('vol_ratio','—')}x\n"
-    if rb_data.get('swing_low') and sig["direction"]=="Long":
-        msg += f"Near Swing Low: {_fmt(rb_data.get('swing_low'))}\n"
-    if rb_data.get('swing_high') and sig["direction"]=="Short":
-        msg += f"Near Swing High: {_fmt(rb_data.get('swing_high'))}\n"
-    if sig.get("reason"): msg += f"\n💬 {str(sig['reason'])[:200]}\n"
-    msg += f"\n_⚡ sasi.asia/dashboard · {cfg.BOT_VERSION} Rebound_"
+    msg = _tg_header(title, label, subtitle)
+    msg += f"🕐 {now_thai().strftime('%H:%M')} TH\n"
+    msg += f"📍 {_tg_escape(regime)} | Strategy: {_tg_escape(strat)}\n"
+    msg += f"🔀 Gate: {_tg_escape(gate)}\n\n"
+    msg += _tg_level_line("💰", "Entry", sig.get("entry"), sig.get("entry"), direction, "(ตลาด)")
+    msg += _tg_level_line("🎯", "TP1", sig.get("tp1"), sig.get("entry"), direction)
+    msg += _tg_level_line("🎯", "TP2", sig.get("tp2"), sig.get("entry"), direction)
+    msg += _tg_level_line("🎯", "TP3", sig.get("tp3"), sig.get("entry"), direction)
+    msg += _tg_level_line("🛡", "Soft SL", sig.get("ssl"), sig.get("entry"), direction)
+    msg += _tg_level_line("🛑", "Hard SL", sig.get("hsl"), sig.get("entry"), direction)
+    msg += "\n"
+    msg += f"📊 30m Score: L={rb_data.get('long_score', 0)} | S={rb_data.get('short_score', 0)}\n"
+    msg += f"📈 BB%B: {rb_data.get('bb_pct', '—')} | RSI: {rb_data.get('rsi', '—')} | Vol: {rb_data.get('vol_ratio', '—')}x\n"
+    if sig.get("funding_rate") is not None:
+        msg += f"💸 Funding: {sig.get('funding_rate'):+.4f}%\n"
+    reason = sig.get("reason") or sig.get("reject_reason") or sig.get("filter_reason")
+    if reason:
+        msg += f"\n💬 {_tg_escape(reason, 260)}\n"
     return msg
 
+
 def build_tg_rebound_alert_simple(symbol, direction, price, rb_data, reasons):
-    """Rebound alert แบบสั้นสำหรับ auto scan"""
-    sym   = symbol.replace("USDT","")
-    dicon = "🟢 LONG" if direction=="Long" else "🔴 SHORT"
-    msg   = f"↩️ *REBOUND ALERT* — {dicon} *{sym}/USDT*\n\n"
-    msg  += f"💰 *Price:* ${price:,.2f}\n"
-    msg  += f"📊 *BB%B:* {rb_data.get('bb_pct','—')} | *RSI:* {rb_data.get('rsi','—')}\n"
-    msg  += f"📦 *Volume:* {rb_data.get('vol_ratio','—')}x avg\n"
-    msg  += f"🎯 *Score:* Long={rb_data.get('long_score',0)} Short={rb_data.get('short_score',0)}\n"
-    msg  += f"\n📌 {' | '.join(reasons[:3])}\n"
-    msg  += f"\n_⚡ กด Analyze บน dashboard เพื่อดู TP/SL_\n"
-    msg  += f"_sasi.asia/dashboard · {cfg.BOT_VERSION}_"
+    """Rebound scan alert in the same visual family as other Telegram messages."""
+    sym = symbol.replace("USDT", "")
+    conf = rb_data.get("conf") or rb_data.get("confidence") or "—"
+    title = ("🟢 LONG" if direction == "Long" else "🔴 SHORT") + f" {sym}/USDT | Conf: {conf}"
+    subtitle = rb_data.get("subtitle") or "15m/1h bounce — 4h ยังไม่ confirm"
+    regime = rb_data.get("regime") or "RANGING"
+    strategy = rb_data.get("strategy") or "REBOUND"
+    gate = rb_data.get("gate_path") or "SCAN"
+
+    msg = _tg_header(title, "REBOUND SCAN", subtitle)
+    msg += f"🕐 {now_thai().strftime('%H:%M')} TH\n"
+    msg += f"📍 {_tg_escape(regime)} | Strategy: {_tg_escape(strategy)}\n"
+    msg += f"🔀 Gate: {_tg_escape(gate)}\n\n"
+    msg += f"💰 Entry: {_fmt(price)} (ตลาด)\n"
+    msg += f"📊 30m Score: L={rb_data.get('long_score', 0)} | S={rb_data.get('short_score', 0)}\n"
+    msg += f"📈 BB%B: {rb_data.get('bb_pct', '—')} | RSI: {rb_data.get('rsi', '—')} | Vol: {rb_data.get('vol_ratio', '—')}x\n"
+    msg += f"\n💬 {_tg_escape(' | '.join(reasons[:3]), 260)}\n"
     return msg
 
 # ─── STARTUP ──────────────────────────────────────────────

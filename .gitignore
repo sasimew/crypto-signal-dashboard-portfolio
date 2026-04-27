@@ -8,6 +8,7 @@ __pycache__/
 *.pyo
 *.log
 data/
+export/
 
 # Local / production-only docs
 DEPLOY_CHECKLIST.md
@@ -16,4 +17,3 @@ telegram_guide.docx
 
 # Personal site / embedded assets not needed for the public portfolio
 home.html
-

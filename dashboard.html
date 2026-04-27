@@ -3,7 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Crypto Signal — sasi.asia</title>
+<title>มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม</title>
+<meta name="description" content="มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="sasi.asia">
+<meta property="og:title" content="มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม">
+<meta property="og:description" content="มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม">
+<meta property="og:url" content="https://sasi.asia/dashboard/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม">
+<meta name="twitter:description" content="มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%230a0a0f'/%3E%3Cpath d='M76 24H42Q28 24 28 38Q28 52 42 52H60Q74 52 74 66Q74 80 60 80H24' fill='none' stroke='%23ff294d' stroke-width='15' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
@@ -1510,9 +1519,14 @@ async function apiFetch(path){
   try{
     // same-origin เมื่อ apiUrl ว่าง (HTTPS mode)
     var url = S.apiUrl ? S.apiUrl+path : path;
-    var r = await fetch(url);
+    var r = await fetch(url, { credentials:'same-origin', cache:'no-store' });
+    if(!r.ok){
+      return { ok:false, _http_error:true, status:r.status, error_text:await r.text() };
+    }
     return await r.json();
-  }catch(e){ return null; }
+  }catch(e){
+    return { ok:false, _fetch_error:true, error_text:String(e&&e.message||e) };
+  }
 }
 
 // ── SERVER STATUS ─────────────────────────────────────────────
@@ -1850,15 +1864,21 @@ var _analysisState = {
   symbol: 'BTCUSDT',
   direction: 'Long',
   mtfToken: 0,
+  lastRunKey: '',
+  inFlightKey: '',
+  lastTriggeredAt: {},
 };
+var ANALYZE_COOLDOWN_MS = 60000;
 
 function setAnalysisDirection(direction){
+  if(_analysisState.direction === direction) return;
   _analysisState.direction = direction;
   syncAnalysisControls();
   quickAnalyze(_analysisState.symbol, _analysisState.direction);
 }
 
 function setAnalysisSymbol(symbol){
+  if(_analysisState.symbol === symbol) return;
   _analysisState.symbol = symbol;
   syncAnalysisControls();
   quickAnalyze(_analysisState.symbol, _analysisState.direction);
@@ -1962,6 +1982,17 @@ async function renderMultiTimeframeTrend(symbol, hostId){
 
 // ── QUICK AI ANALYZE ──────────────────────────────────────────
 async function quickAnalyze(symbol, direction){
+  var runKey = `${symbol}:${direction}`;
+  var nowTs = Date.now();
+  var lastTs = _analysisState.lastTriggeredAt[runKey] || 0;
+  if(nowTs - lastTs < ANALYZE_COOLDOWN_MS){
+    var waitSec = Math.ceil((ANALYZE_COOLDOWN_MS - (nowTs - lastTs)) / 1000);
+    showToast(`⏳ Please wait ${waitSec}s before running ${symbol} ${direction} again`, 3000);
+    return;
+  }
+  if(_analysisState.inFlightKey === runKey || _analysisState.lastRunKey === runKey) return;
+  _analysisState.lastTriggeredAt[runKey] = nowTs;
+  _analysisState.inFlightKey = runKey;
   _analysisState.symbol = symbol;
   _analysisState.direction = direction;
   syncAnalysisControls();
@@ -1997,10 +2028,13 @@ async function quickAnalyze(symbol, direction){
     } else if(sig.strategy_used === 'REBOUND'){
       showToast('↩️ Rebound Signal detected!', 5000);
     }
+    _analysisState.lastRunKey = runKey;
   }catch(e){
+    _analysisState.lastRunKey = '';
     $('quick-result').innerHTML=`<div style="color:var(--red);font-size:12px;padding:10px">❌ ${e.message}</div>`;
     $('quick-result').style.display='block';
   }
+  _analysisState.inFlightKey = '';
   $('quick-loading').style.display='none';
 }
 
@@ -2151,6 +2185,9 @@ async function loadRecent(){
     var isLong = s.direction==='Long';
     var chg    = s.change!=null?`<span class="${s.change>=0?'green':'red'}">${fmtPct(s.change)}</span>`:'';
     var isTradeable = ['APPROVED','WEAK APPROVAL','MICRO BOUNCE'].includes(s.verdict);
+    var logEntry = s.entry || s.suggested_entry;
+    var logTp1 = s.tp1 || s.suggested_tp1;
+    var logHsl = s.hsl || s.suggested_hsl || s.ssl || s.suggested_ssl;
     var rejectTip = (s.reject_reason && !isTradeable) ? `title="${s.reject_reason.replace(/"/g,"'").slice(0,200)}"` : '';
     return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)" ${rejectTip}>
       <div class="flex">
@@ -2184,6 +2221,9 @@ async function loadLog(){
   tbody.innerHTML = r.data.map(s=>{
     var t  = s.time_thai || new Date(s.time).toLocaleString('th-TH',{timeZone:'Asia/Bangkok',hour12:false}).slice(0,16);
     var isTradeable = ['APPROVED','WEAK APPROVAL','MICRO BOUNCE'].includes(s.verdict);
+    var logEntry = s.entry || s.suggested_entry;
+    var logTp1 = s.tp1 || s.suggested_tp1;
+    var logHsl = s.hsl || s.suggested_hsl || s.ssl || s.suggested_ssl;
 
     // Gate display compact
     var gateStr = s.gate_path || '—';
@@ -2207,9 +2247,9 @@ async function loadLog(){
       <td style="font-weight:700">${s.symbol.replace('USDT','')}</td>
       <td><span class="badge ${s.direction==='Long'?'b-long':'b-short'}" style="font-size:9px">${s.direction||'—'}</span></td>
       <td style="font-family:var(--mono);font-size:11px">${fmt(s.price)}</td>
-      <td class="lv-blue" style="font-family:var(--mono);font-size:11px">${isTradeable ? fmt(s.entry) : '<span class="muted">—</span>'}</td>
-      <td class="lv-green" style="font-family:var(--mono);font-size:11px">${isTradeable ? fmt(s.tp1) : '<span class="muted">—</span>'}</td>
-      <td class="lv-red" style="font-family:var(--mono);font-size:11px">${isTradeable ? fmt(s.hsl) : '<span class="muted">—</span>'}</td>
+      <td class="lv-blue" style="font-family:var(--mono);font-size:11px">${logEntry ? fmt(logEntry) : '<span class="muted">—</span>'}</td>
+      <td class="lv-green" style="font-family:var(--mono);font-size:11px">${logTp1 ? fmt(logTp1) : '<span class="muted">—</span>'}</td>
+      <td class="lv-red" style="font-family:var(--mono);font-size:11px">${logHsl ? fmt(logHsl) : '<span class="muted">—</span>'}</td>
       <td>${verdictBadge(s.verdict)}</td>
       <td style="text-align:center">${confCell}<br><span class="muted" style="font-size:9px">${preConfStr}</span></td>
       <td style="font-size:10px;font-family:var(--mono)" title="${gateStr}">${gateShort}</td>
@@ -2247,7 +2287,12 @@ async function loadRecheck(){
   }
   var r = await apiFetch(query);
   var el=$('recheck-list');
-  if(!r||!r.data){el.innerHTML='<div class="muted">Cannot load recheck log</div>';return;}
+  if(!r || r.ok===false || !Array.isArray(r.data)){
+    var msg = r && r.status ? `Cannot load recheck log (HTTP ${r.status})` : 'Cannot load recheck log';
+    if(r && r.error_text) msg += `<div style="margin-top:8px;font-size:11px;opacity:.8">${String(r.error_text).slice(0,180)}</div>`;
+    el.innerHTML=`<div class="muted" style="padding:16px">${msg}</div>`;
+    return;
+  }
   var availableDates = r.available_dates || [];
   if(!_recheckDate){
     _recheckDate = availableDates[0] || ymdLocal(new Date(Date.now() - 24*60*60*1000));
@@ -2282,7 +2327,7 @@ async function loadRecheck(){
     el.innerHTML=`<div class="muted" style="padding:16px">
       <div>No recheck data for ${periodLabel}.</div>
       <div style="margin-top:8px;font-size:11px">⏰ Next recheck: <b>${nextStr}</b></div>
-      <div style="font-size:11px;margin-top:4px">เฉพาะ signal ที่ conf >= 50</div>
+      <div style="font-size:11px;margin-top:4px">เฉพาะทุก signal ที่ conf >= 70</div>
     </div>`;
     return;
   }
@@ -2297,24 +2342,17 @@ async function loadRecheck(){
 
   var wins   = deduped.filter(x=>x.outcome&&x.outcome.includes('WIN')).length;
   var losses = deduped.filter(x=>x.outcome&&x.outcome.includes('LOSS')).length;
-  var softsl = deduped.filter(x=>x.outcome&&x.outcome.includes('SOFT')).length;
-  var pending= deduped.filter(x=>!x.outcome||x.outcome.includes('PENDING')).length;
+  var flat   = deduped.filter(x=>String(x.outcome||'').trim()==='0').length;
+  var unknown= deduped.filter(x=>x.outcome&&x.outcome.includes('UNKNOWN')).length;
   var wr     = wins+losses>0?Math.round(wins/(wins+losses)*100):null;
 
-  // TP breakdown
-  var tp1 = deduped.filter(x=>x.outcome&&x.outcome.includes('TP1')).length;
-  var tp2 = deduped.filter(x=>x.outcome&&x.outcome.includes('TP2')).length;
-  var tp3 = deduped.filter(x=>x.outcome&&x.outcome.includes('TP3')).length;
-
   function outcomeCell(x){
-    if(!x.outcome) return '<span class="badge b-notrade">PENDING</span>';
-    if(x.outcome.includes('WIN TP3')) return '<span class="badge b-approved">WIN TP3 ✅</span>';
-    if(x.outcome.includes('WIN TP2')) return '<span class="badge b-approved">WIN TP2 ✅</span>';
-    if(x.outcome.includes('WIN TP1')) return '<span class="badge b-approved">WIN TP1 ✅</span>';
+    if(!x.outcome) return '<span class="badge b-notrade">UNKNOWN</span>';
     if(x.outcome.includes('WIN'))     return '<span class="badge b-approved">WIN ✅</span>';
     if(x.outcome.includes('LOSS'))    return '<span class="badge b-rejected">LOSS ❌</span>';
-    if(x.outcome.includes('SOFT'))    return '<span class="badge b-weak">SOFT SL ⚠️</span>';
-    return '<span class="badge b-notrade">PENDING</span>';
+    if(String(x.outcome).trim()==='0') return '<span class="badge b-notrade">0</span>';
+    if(x.outcome.includes('UNKNOWN')) return '<span class="badge b-notrade">UNKNOWN</span>';
+    return '<span class="badge b-notrade">UNKNOWN</span>';
   }
 
   el.innerHTML = `
@@ -2325,12 +2363,12 @@ async function loadRecheck(){
       <div class="stat"><div class="stat-label">Wins</div><div class="stat-value green">${wins}</div></div>
       <div class="stat"><div class="stat-label">Losses</div><div class="stat-value red">${losses}</div></div>
       <div class="stat"><div class="stat-label">Win Rate</div><div class="stat-value">${wr!=null?wr+'%':'—'}</div></div>
-      <div class="stat"><div class="stat-label">Total</div><div class="stat-value">${wins+losses+softsl+pending}</div></div>
+      <div class="stat"><div class="stat-label">Total</div><div class="stat-value">${deduped.length}</div></div>
     </div>
-    ${tp1+tp2+tp3>0?`<div style="font-size:11px;color:var(--muted);margin-bottom:10px">TP hits: TP1×${tp1} TP2×${tp2} TP3×${tp3} | SoftSL: ${softsl} | Pending: ${pending}</div>`:''}
+    ${(flat+unknown)>0?`<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Flat: ${flat} | Unknown: ${unknown}</div>`:''}
     <div class="tbl-wrap">
     <table>
-      <thead><tr><th>Date</th><th>Signal</th><th>Symbol</th><th>Dir</th><th>Verdict</th><th>Conf</th><th>Gate</th><th>Entry</th><th>Now</th><th>P&L</th><th>Outcome</th></tr></thead>
+      <thead><tr><th>Date</th><th>Signal</th><th>Symbol</th><th>Dir</th><th>Verdict</th><th>Conf</th><th>Entry</th><th>TP1</th><th>Hard SL</th><th>P&amp;L</th><th>Outcome</th></tr></thead>
       <tbody>
       ${deduped.map(x=>`<tr>
         <td style="font-size:10px;color:var(--muted)">${x.recheck_date||x.signal_time?.slice(0,10)||x.time?.slice(0,10)||'—'}</td>
@@ -2342,9 +2380,9 @@ async function loadRecheck(){
           <span style="font-family:var(--mono);font-weight:700;color:${(x.conf||0)>=70?'var(--green)':(x.conf||0)>=50?'var(--yellow)':'var(--red)'}">${x.conf!=null?x.conf:'—'}</span>
           <br><span class="muted" style="font-size:9px">${x.pre_conf!=null?x.pre_conf+'%':'—'}</span>
         </td>
-        <td style="font-size:10px;font-family:var(--mono)" title="${x.gate_path||'—'}">${(x.gate_path||'—').replace('TIER','T').replace('_APPROVED','✅').replace('_AUTO','⚡').replace('_CLAUDE','🤖').replace('_BOT_REJECT','🚫').replace('_WEAK','📋').replace('_FILTERED','🗑')}</td>
         <td>${fmt(x.entry)}</td>
-        <td>${fmt(x.current_price)}</td>
+        <td>${x.tp1!=null?fmt(x.tp1):'—'}</td>
+        <td>${x.hsl!=null?fmt(x.hsl):(x.ssl!=null?fmt(x.ssl):'—')}</td>
         <td class="${(x.pnl_pct||0)>=0?'green':'red'}">${x.pnl_pct!=null?fmtPct(x.pnl_pct):'—'}</td>
         <td>${outcomeCell(x)}</td>
       </tr>`).join('')}
@@ -2472,7 +2510,6 @@ async function init(){
 
   // BUG-14 FIX: ใช้ loadOverviewStats แทน inline stats call
   await loadOverviewStats();
-  await quickAnalyze(_analysisState.symbol, _analysisState.direction);
 
   // Auto refresh trend + server every 30s
   setInterval(async()=>{

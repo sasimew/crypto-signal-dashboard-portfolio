@@ -2,19 +2,25 @@
 """
 Signal Recheck v4 — SET1v4
 - รันทุก 00:00 TH (17:00 UTC via cron)
-- เช็คทุก signal ที่ conf >= 50
+- เช็คทุก signal ที่ conf >= 70
 - BUG-07 FIX: ลบ duplicate code block ออก (เดิมมี 2 version ต่อกัน)
 - แก้ให้เก็บ history 7 วัน (RECHECK_LOG limit=500 → 7-day window)
-- ใช้ราคาปัจจุบันตรวจ TP/SL (realtime check)
+- ใช้ราคาที่เวลา recheck เพื่อตัดผลจาก P/L sign
 """
 import json, os, sys, urllib.request, urllib.parse
 from datetime import datetime, timezone, timedelta
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import config as cfg
+try:
+    import config_set2 as cfg
+    import bot_set2 as bot_module
+except ImportError:
+    import config as cfg
+    import bot as bot_module
 
 TZ_THAI = timezone(timedelta(hours=7))
 def now_thai(): return datetime.now(TZ_THAI)
 def log(m): print(f"[{now_thai().strftime('%Y-%m-%d %H:%M:%S')} TH] {m}", flush=True)
+BOT_VERSION = getattr(cfg, "BOT_VERSION", "SET1v4")
 
 def get_price(sym):
     try:
@@ -45,6 +51,25 @@ def get_price_at_recheck_time(sym, target_date):
         log(f"Historical price error {sym} {target_date}: {e}")
     return get_price(sym)
 
+def get_intraday_klines(sym, start_th, end_th, interval="5m"):
+    """
+    ดึง candles ตั้งแต่หลัง signal จนถึงสิ้นวัน recheck เพื่อดูว่า TP/SL เคย hit หรือไม่
+    ใช้ลำดับ candle เพื่อเลี่ยงปัญหา daily high/low ที่ไม่รู้ว่า TP หรือ SL มาก่อน
+    """
+    try:
+        start_ms = int(start_th.astimezone(timezone.utc).timestamp() * 1000)
+        end_ms = int(end_th.astimezone(timezone.utc).timestamp() * 1000)
+        url = (
+            f"https://api.binance.com/api/v3/klines?symbol={sym}"
+            f"&interval={interval}&startTime={start_ms}&endTime={end_ms}&limit=1000"
+        )
+        with urllib.request.urlopen(url, timeout=12) as r:
+            data = json.loads(r.read().decode())
+            return data if isinstance(data, list) else []
+    except Exception as e:
+        log(f"Intraday kline error {sym}: {e}")
+        return []
+
 def load_json(p):
     try:
         if os.path.exists(p):
@@ -59,52 +84,188 @@ def safe_float(v):
     try: return float(v) if v else 0.0
     except: return 0.0
 
-def check(sig, now_price):
+def check(sig, now_price, candles=None):
     """
-    ตรวจสอบ outcome ของ signal
-    WIN TP1/TP2/TP3 / LOSS / SOFT SL / PENDING
+    ตรวจสอบ outcome:
+      1) ถ้า intraday candle เคย hit TP1/TP2/TP3 ให้ถือเป็น WIN แม้ราคาปลายวันกลับมาติดลบ
+      2) ถ้า hit Soft SL ก่อน TP ให้บันทึก SOFT SL
+      3) ถ้าไม่ hit level ใด ใช้ P/L ปลายวัน
+    ถ้าไม่มี entry หรือไม่มีราคาที่ใช้ recheck จะเป็น UNKNOWN
     """
-    d   = sig.get("direction", "Long")
-    e   = safe_float(sig.get("entry"))
-    hsl = safe_float(sig.get("hsl"))
-    ssl = safe_float(sig.get("ssl"))
+    d = sig.get("direction", "Long")
+    e = safe_float(sig.get("entry"))
+
+    if not e or not now_price:
+        return "UNKNOWN", 0.0, "—", None, None
+
     tp1 = safe_float(sig.get("tp1"))
     tp2 = safe_float(sig.get("tp2"))
     tp3 = safe_float(sig.get("tp3"))
+    ssl = safe_float(sig.get("ssl"))
+    high = None
+    low = None
 
-    if not e or not now_price:
-        return "UNKNOWN", 0.0, "—"
+    if candles:
+        highs = [safe_float(c[2]) for c in candles if len(c) > 3]
+        lows = [safe_float(c[3]) for c in candles if len(c) > 3]
+        highs = [x for x in highs if x]
+        lows = [x for x in lows if x]
+        high = max(highs) if highs else None
+        low = min(lows) if lows else None
+
+        for c in candles:
+            if len(c) <= 3:
+                continue
+            c_high = safe_float(c[2])
+            c_low = safe_float(c[3])
+            if d == "Long":
+                hit_tp3 = tp3 and c_high >= tp3
+                hit_tp2 = tp2 and c_high >= tp2
+                hit_tp1 = tp1 and c_high >= tp1
+                hit_sl = ssl and c_low <= ssl
+                if hit_tp3: return "WIN ✅ TP3", round((tp3 - e) / e * 100, 2), "TP3", high, low
+                if hit_tp2: return "WIN ✅ TP2", round((tp2 - e) / e * 100, 2), "TP2", high, low
+                if hit_tp1: return "WIN ✅ TP1", round((tp1 - e) / e * 100, 2), "TP1", high, low
+                if hit_sl: return "SOFT SL ⚠️", round((ssl - e) / e * 100, 2), "Soft SL", high, low
+            elif d == "Short":
+                hit_tp3 = tp3 and c_low <= tp3
+                hit_tp2 = tp2 and c_low <= tp2
+                hit_tp1 = tp1 and c_low <= tp1
+                hit_sl = ssl and c_high >= ssl
+                if hit_tp3: return "WIN ✅ TP3", round((e - tp3) / e * 100, 2), "TP3", high, low
+                if hit_tp2: return "WIN ✅ TP2", round((e - tp2) / e * 100, 2), "TP2", high, low
+                if hit_tp1: return "WIN ✅ TP1", round((e - tp1) / e * 100, 2), "TP1", high, low
+                if hit_sl: return "SOFT SL ⚠️", round((e - ssl) / e * 100, 2), "Soft SL", high, low
 
     pnl = (now_price - e) / e * 100 if d == "Long" else (e - now_price) / e * 100
+    pnl = round(pnl, 2)
 
-    if d == "Long":
-        if tp3 and now_price >= tp3:   outcome = "WIN TP3 ✅"
-        elif tp2 and now_price >= tp2: outcome = "WIN TP2 ✅"
-        elif tp1 and now_price >= tp1: outcome = "WIN TP1 ✅"
-        elif hsl and now_price <= hsl: outcome = "LOSS ❌"
-        elif ssl and now_price <= ssl: outcome = "SOFT SL ⚠️"
-        else:                          outcome = "PENDING"
-    else:  # Short
-        if tp3 and now_price <= tp3:   outcome = "WIN TP3 ✅"
-        elif tp2 and now_price <= tp2: outcome = "WIN TP2 ✅"
-        elif tp1 and now_price <= tp1: outcome = "WIN TP1 ✅"
-        elif hsl and now_price >= hsl: outcome = "LOSS ❌"
-        elif ssl and now_price >= ssl: outcome = "SOFT SL ⚠️"
-        else:                          outcome = "PENDING"
+    if pnl > 0:
+        outcome = "WIN ✅"
+        level = "P/L > 0"
+    elif pnl < 0:
+        outcome = "LOSS ❌"
+        level = "P/L < 0"
+    else:
+        outcome = "0"
+        level = "P/L = 0"
 
-    level = "—"
-    if "TP3" in outcome:  level = f"TP3 ${tp3:,.2f}"
-    elif "TP2" in outcome: level = f"TP2 ${tp2:,.2f}"
-    elif "TP1" in outcome: level = f"TP1 ${tp1:,.2f}"
-    elif "LOSS" in outcome: level = f"HSL ${hsl:,.2f}"
-    elif "SOFT" in outcome: level = f"SSL ${ssl:,.2f}"
+    return outcome, pnl, level, high, low
 
-    return outcome, round(pnl, 2), level
+def filter_candles_until(candles, end_th):
+    end_ms = int(end_th.astimezone(timezone.utc).timestamp() * 1000)
+    return [c for c in (candles or []) if c and int(c[0]) < end_ms]
+
+def candle_close(candles, fallback):
+    try:
+        if candles:
+            return safe_float(candles[-1][4]) or fallback
+    except Exception:
+        pass
+    return fallback
+
+def check_windows(sig, candles, fallback_price, sig_time_th, day_end):
+    windows = {}
+    for label, hours in (("1h", 1), ("2h", 2), ("4h", 4)):
+        end_th = min(sig_time_th + timedelta(hours=hours), day_end)
+        subset = filter_candles_until(candles, end_th)
+        ref_price = candle_close(subset, fallback_price)
+        outcome, pnl, level, high, low = check(sig, ref_price, subset)
+        windows[label] = {
+            "hours": hours,
+            "end_time_thai": end_th.isoformat(),
+            "price": ref_price,
+            "outcome": outcome,
+            "pnl_pct": pnl,
+            "level_hit": level,
+            "high": high,
+            "low": low,
+        }
+    return windows
 
 def fmt(v):
     if not v: return "—"
     try: return f"${float(v):,.2f}"
     except: return "—"
+
+def migrate_missing_levels(logs):
+    """
+    One-time / idempotent migration:
+    เติม TP/SL/Entry ให้ log เก่าที่ conf >= 70 และมี direction/price
+    แบบ aggressive เพื่อให้ recheck คำนวณได้ แม้แถวเก่าจะไม่มี suggested_* เดิม
+    """
+    changed = 0
+    for s in logs:
+        conf = safe_float(s.get("conf"))
+        direction = s.get("direction")
+        price = safe_float(s.get("price"))
+        verdict = str(s.get("verdict", ""))
+        if verdict == "ERROR" or conf < 70 or direction not in ("Long", "Short") or not price:
+            continue
+
+        fallback = bot_module.calc_fallback_levels(price, direction)
+        entry = s.get("entry") or s.get("suggested_entry") or str(round(price, 2))
+        before = {
+            "entry": s.get("entry"),
+            "ssl": s.get("ssl"),
+            "hsl": s.get("hsl"),
+            "tp1": s.get("tp1"),
+            "tp2": s.get("tp2"),
+            "tp3": s.get("tp3"),
+            "suggested_entry": s.get("suggested_entry"),
+            "suggested_ssl": s.get("suggested_ssl"),
+            "suggested_hsl": s.get("suggested_hsl"),
+            "suggested_tp1": s.get("suggested_tp1"),
+            "suggested_tp2": s.get("suggested_tp2"),
+            "suggested_tp3": s.get("suggested_tp3"),
+        }
+        normalized = bot_module.normalize_trade_levels(entry, direction, {
+            "entry": entry,
+            "ssl": s.get("ssl") or s.get("suggested_ssl") or fallback["ssl"],
+            "hsl": s.get("hsl") or s.get("suggested_hsl") or fallback["hsl"],
+            "tp1": s.get("tp1") or s.get("suggested_tp1") or fallback["tp1"],
+            "tp2": s.get("tp2") or s.get("suggested_tp2") or fallback["tp2"],
+            "tp3": s.get("tp3") or s.get("suggested_tp3") or fallback["tp3"],
+            "suggested_entry": s.get("suggested_entry") or entry,
+            "suggested_ssl": s.get("suggested_ssl"),
+            "suggested_hsl": s.get("suggested_hsl"),
+            "suggested_tp1": s.get("suggested_tp1"),
+            "suggested_tp2": s.get("suggested_tp2"),
+            "suggested_tp3": s.get("suggested_tp3"),
+        })
+
+        s["entry"] = normalized["entry"]
+        s["ssl"] = normalized["ssl"]
+        s["hsl"] = normalized["hsl"]
+        s["tp1"] = normalized["tp1"]
+        s["tp2"] = normalized["tp2"]
+        s["tp3"] = normalized["tp3"]
+        s["suggested_entry"] = normalized["suggested_entry"]
+        s["suggested_ssl"] = normalized["suggested_ssl"]
+        s["suggested_hsl"] = normalized["suggested_hsl"]
+        s["suggested_tp1"] = normalized["suggested_tp1"]
+        s["suggested_tp2"] = normalized["suggested_tp2"]
+        s["suggested_tp3"] = normalized["suggested_tp3"]
+        after = {
+            "entry": s.get("entry"),
+            "ssl": s.get("ssl"),
+            "hsl": s.get("hsl"),
+            "tp1": s.get("tp1"),
+            "tp2": s.get("tp2"),
+            "tp3": s.get("tp3"),
+            "suggested_entry": s.get("suggested_entry"),
+            "suggested_ssl": s.get("suggested_ssl"),
+            "suggested_hsl": s.get("suggested_hsl"),
+            "suggested_tp1": s.get("suggested_tp1"),
+            "suggested_tp2": s.get("suggested_tp2"),
+            "suggested_tp3": s.get("suggested_tp3"),
+        }
+        if after != before:
+            changed += 1
+
+    if changed:
+        log(f"🛠 Migrated TP/SL for {changed} rows (conf>=70)")
+    return changed
 
 def send_tg(msg):
     if not cfg.TELEGRAM_TOKEN or "YOUR" in cfg.TELEGRAM_TOKEN: return
@@ -131,7 +292,13 @@ def parse_date_arg(name):
 def has_flag(name):
     return f"--{name}" in sys.argv[1:]
 
-def process_date(logs, rechk, target_date, send_summary=True):
+def process_date(logs, rechk, target_date, send_summary=True, replace_existing=False):
+    if replace_existing:
+        rechk[:] = [
+            r for r in rechk
+            if r.get("recheck_date") != target_date.isoformat()
+        ]
+
     existing_pairs = {
         (r.get("signal_id"), r.get("recheck_date"))
         for r in rechk
@@ -145,7 +312,7 @@ def process_date(logs, rechk, target_date, send_summary=True):
     to_check = []
     for s in logs:
         conf = safe_float(s.get("conf"))
-        if conf < 50:
+        if conf < 70 or s.get("direction") not in ("Long", "Short"):
             continue
         pair = (s.get("id"), target_date.isoformat())
         if pair in existing_pairs:
@@ -160,14 +327,14 @@ def process_date(logs, rechk, target_date, send_summary=True):
         except:
             continue
 
-    log(f"Recheck วัน {target_date} (TH) — พบ {len(to_check)} signals (conf >= 50)")
+    log(f"Recheck วัน {target_date} (TH) — พบ {len(to_check)} signals (conf >= 70)")
 
     if not to_check:
         if send_summary:
             msg = (f"📊 *Recheck — {target_date.strftime('%d %b %Y')}*\n\n"
                    f"ไม่มี signal ที่ต้อง recheck\n"
-                   f"_(เฉพาะ conf >= 50 | 00:00-23:59 TH)_\n\n"
-                   f"_⚡ sasi.asia/dashboard · SET1v4_")
+                   f"_(เฉพาะ conf >= 70 | 00:00-23:59 TH)_\n\n"
+                   f"_⚡ sasi.asia/dashboard · {BOT_VERSION}_")
             send_tg(msg)
         return []
 
@@ -179,9 +346,26 @@ def process_date(logs, rechk, target_date, send_summary=True):
             log(f"  ⚠️ ดึงราคา {sym} ไม่ได้")
             continue
 
-        outcome, pnl, level = check(sig, now)
+        try:
+            sig_time = datetime.fromisoformat(sig.get("time", "").replace("Z", "+00:00"))
+            if sig_time.tzinfo is None:
+                sig_time = sig_time.replace(tzinfo=timezone.utc)
+            sig_time_th = sig_time.astimezone(TZ_THAI)
+        except Exception:
+            sig_time_th = day_start
+        candles = get_intraday_klines(sym, max(sig_time_th, day_start), day_end)
+        outcome_day, pnl_day, level_day, day_high, day_low = check(sig, now, candles)
+        windows = check_windows(sig, candles, now, max(sig_time_th, day_start), day_end)
+        main = windows.get("2h") or {
+            "outcome": outcome_day, "pnl_pct": pnl_day, "level_hit": level_day,
+            "price": now, "high": day_high, "low": day_low,
+        }
+        outcome = main["outcome"]
+        pnl = main["pnl_pct"]
+        level = main["level_hit"]
         log(f"  {sig.get('id','?')}: {sig.get('direction')} @ {fmt(sig.get('entry'))} "
-            f"→ ref={fmt(now)} | {outcome} {pnl:+.2f}% | hit={level}")
+            f"→ 2h={fmt(main.get('price'))} | H2={fmt(main.get('high'))} L2={fmt(main.get('low'))} "
+            f"| Day H={fmt(day_high)} L={fmt(day_low)} | {outcome} {pnl:+.2f}% | hit={level}")
 
         r = {
             "signal_id":     sig.get("id"),
@@ -200,6 +384,13 @@ def process_date(logs, rechk, target_date, send_summary=True):
             "tp2":           sig.get("tp2"),
             "tp3":           sig.get("tp3"),
             "current_price": now,
+            "main_window": "2h",
+            "windows":       windows,
+            "day_high_after_signal": day_high,
+            "day_low_after_signal":  day_low,
+            "day_outcome":   outcome_day,
+            "day_pnl_pct":   pnl_day,
+            "day_level_hit": level_day,
             "outcome":       outcome,
             "pnl_pct":       pnl,
             "level_hit":     level,
@@ -217,6 +408,13 @@ def process_date(logs, rechk, target_date, send_summary=True):
                     "pnl_pct":   pnl,
                     "level_hit": level,
                     "price":     now,
+                    "main_window": "2h",
+                    "windows":    windows,
+                    "day_high_after_signal": day_high,
+                    "day_low_after_signal":  day_low,
+                    "day_outcome": outcome_day,
+                    "day_pnl_pct": pnl_day,
+                    "day_level_hit": level_day,
                     "time":      r["time"],
                     "recheck_date": target_date.isoformat(),
                 }
@@ -238,7 +436,7 @@ def process_date(logs, rechk, target_date, send_summary=True):
 
         date_s = target_date.strftime("%d %b %Y")
         msg  = f"📊 *Signal Recheck — {date_s}*\n"
-        msg += f"_(conf >= 50 | 00:00-23:59 TH)_\n\n"
+        msg += f"_(เฉพาะ conf >= 70 | main benchmark: 2h หลัง signal)_\n\n"
         msg += f"📈 WIN: *{len(wins)}* | 📉 LOSS: *{len(losses)}* | ⚠️ SoftSL: {len(softsl)} | ⏳ Pending: {len(pending)}\n"
         if wr is not None:
             msg += f"🎯 *Win Rate: {wr}%*\n\n"
@@ -263,17 +461,18 @@ def process_date(logs, rechk, target_date, send_summary=True):
                 sym = r['symbol'].replace('USDT','')
                 msg += f"  {sym} {r['direction']} {r['pnl_pct']:+.2f}%\n"
 
-        msg += f"\n_⚡ sasi.asia/dashboard · SET1v4_"
+        msg += f"\n_⚡ sasi.asia/dashboard · {BOT_VERSION}_"
         send_tg(msg)
 
     return results
 
 def main():
     log("=" * 50)
-    log("🔍 Signal Recheck v4 — SET1v4")
+    log(f"🔍 Signal Recheck v4 — {BOT_VERSION}")
 
     logs  = load_json(cfg.LOG_FILE)
     rechk = load_json(cfg.RECHECK_LOG)
+    migrated = migrate_missing_levels(logs)
     today_th = now_thai().date()
     from_date = parse_date_arg("from")
     to_date = parse_date_arg("to") or today_th
@@ -287,18 +486,18 @@ def main():
         d = start_date
         total = 0
         while d <= to_date:
-            total += len(process_date(logs, rechk, d, send_summary=False))
+            total += len(process_date(logs, rechk, d, send_summary=False, replace_existing=True))
             d += timedelta(days=1)
         save_json(cfg.LOG_FILE, logs)
         save_json(cfg.RECHECK_LOG, rechk[:2000])
-        log(f"✅ Backfill done — added {total} recheck rows")
+        log(f"✅ Backfill done — migrated {migrated} rows, added {total} recheck rows")
         return
 
     yesterday_th = today_th - timedelta(days=1)
     results = process_date(logs, rechk, yesterday_th, send_summary=True)
     save_json(cfg.LOG_FILE, logs)
     save_json(cfg.RECHECK_LOG, rechk[:2000])
-    log(f"✅ Done — rows:{len(results)}")
+    log(f"✅ Done — migrated {migrated} rows | rows:{len(results)}")
 
 if __name__ == "__main__":
     main()
