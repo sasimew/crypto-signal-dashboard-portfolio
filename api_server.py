@@ -709,6 +709,28 @@ def api_analyze():
             opposite_score = short_score if direction == "Long" else long_score
             pre_conf = bot_module.compute_pre_conf(long_score, short_score, direction)
 
+        ctx_aligned = False
+        ctx_reasons = []
+        if final_direction in ("Long", "Short"):
+            ctx_bonus, ctx_reasons = bot_module.calc_market_context_bonus(
+                m.get("market_ctx") or {}, final_direction
+            )
+            ctx_aligned = bot_module.is_market_context_aligned(
+                m.get("market_ctx") or {}, final_direction
+            )
+            pre_conf_before_ctx = pre_conf
+            pre_conf = max(0, min(95, pre_conf + ctx_bonus))
+            if ctx_reasons:
+                filter_reason = (
+                    f"{filter_reason} | ctx_bonus={ctx_bonus:+d} "
+                    f"({'; '.join(ctx_reasons[:3])})"
+                )
+            m["ctx_bonus"] = ctx_bonus
+            m["ctx_reasons"] = ctx_reasons
+            m["ctx_aligned"] = ctx_aligned
+            m["pre_conf"] = pre_conf
+            m["pre_conf_before_ctx"] = pre_conf_before_ctx
+
         # ── Step 4: 5-Tier Gate (same as bot.py) ─────────────
         #
         # Tier 5: pre_conf >= AUTO_APPROVE_CONF + alignment → APPROVED (no Claude)
@@ -778,10 +800,15 @@ def api_analyze():
             save_json(cfg.LOG_FILE, logs)
             return jsonify({"ok": True, "signal": sig, "tg_sent": False, "tg_reason": "not sent (NO TRADE)"})
 
-        if pre_conf < cfg.CLAUDE_MIN_CONF and not passed:
+        effective_claude_min = cfg.CLAUDE_MIN_CONF
+        if ctx_aligned and cfg.CTX_CLAUDE_GATE_REDUCTION > 0:
+            effective_claude_min = cfg.CLAUDE_MIN_CONF - cfg.CTX_CLAUDE_GATE_REDUCTION
+        m["effective_claude_min"] = effective_claude_min
+
+        if pre_conf < effective_claude_min and not passed:
             sig = bot_module.build_signal(
                 symbol, final_direction, m, "NO TRADE", pre_conf, {},
-                f"Manual bot gate: pre_conf={pre_conf}% below Claude gate, filter not passed",
+                f"Manual bot gate: pre_conf={pre_conf}% below Claude gate {effective_claude_min}%, filter not passed",
                 regime, regime_conf, regime_reasons,
                 strategy, filter_reason, tf_bk, rb_data,
                 gate_path="MANUAL_BOT_REJECT",
@@ -789,7 +816,7 @@ def api_analyze():
                 claude_called=False
             )
             logs = load_json(cfg.LOG_FILE)
-            sig["reject_reason"] = f"Manual bot gate: pre_conf={pre_conf}% below Claude gate, filter not passed"
+            sig["reject_reason"] = f"Manual bot gate: pre_conf={pre_conf}% below Claude gate {effective_claude_min}%, filter not passed"
             logs.insert(0, sig)
             save_json(cfg.LOG_FILE, logs)
             return jsonify({"ok": True, "signal": sig, "tg_sent": False, "tg_reason": "not sent (NO TRADE)"})
@@ -824,7 +851,7 @@ def api_analyze():
         # Manual log score must stay aligned with bot scoring; Claude confidence is kept
         # separately for audit so manual Long/Short clicks cannot create conflicting scores.
         display_conf = pre_conf if pre_conf > 0 else conf
-        gate = "TIER4_CLAUDE" if pre_conf >= cfg.CLAUDE_MIN_CONF else "MANUAL_CLAUDE"
+        gate = "TIER4_CLAUDE" if pre_conf >= effective_claude_min else "MANUAL_CLAUDE"
 
         # ── Step 5: Build Signal ──────────────────────────────
         sig = bot_module.build_signal(

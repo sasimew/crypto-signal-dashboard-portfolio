@@ -1320,7 +1320,13 @@ def build_summary(m, regime, strategy, tf_bk, rb_data=None, direction=None):
             "taker_sell_pct": ctx.get("taker_sell_pct"),
             "oi_change_pct":  ctx.get("oi_change_pct"),
             "ctx_bonus":      m.get("ctx_bonus", 0),       # bonus ที่ apply แล้ว
+            "ctx_aligned":    m.get("ctx_aligned", False),
+            "ctx_reasons":    (m.get("ctx_reasons") or [])[:3],
         }
+    if m.get("pre_conf") is not None:
+        payload["pre_conf"] = m.get("pre_conf")
+    if m.get("effective_claude_min") is not None:
+        payload["effective_claude_min"] = m.get("effective_claude_min")
     # ── Volume warning ────────────────────────────────────────
     t15_vr = (m.get("tf_15m") or {}).get("vol_ratio")
     if t15_vr is not None and t15_vr < cfg.CTX_VOL_MIN_FOR_SIGNAL:
