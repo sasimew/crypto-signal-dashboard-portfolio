@@ -1,6 +1,8 @@
-# Crypto Signal Dashboard Portfolio
+# Crypto Signal Dashboard Portfolio V2
 
-A production-style crypto signal dashboard and bot system focused on:
+A production-style crypto signal dashboard and bot system. The portfolio version now reflects the V2 dashboard workflow, including an updated indicator configuration layer without exposing private trading parameters.
+
+The project is focused on:
 
 - rule-based signal generation
 - AI validation for medium/high-confidence setups
@@ -40,7 +42,7 @@ Core flow:
   Backfill and recheck engine used to evaluate historical logged signals.
 
 - `config.py`
-  Centralized thresholds and signal logic configuration.
+  Centralized thresholds, indicator settings, and signal logic configuration.
 
 - `docker-compose.yml`
   Local and VPS runtime orchestration.
@@ -67,12 +69,17 @@ The dashboard and bot revolve around a confidence-gated workflow:
 - `>= 70`
   High-confidence path, often used for stronger alert and Telegram behavior depending on verdict and route
 
+## V2 Dashboard Update
+
+V2 adds a cleaner indicator configuration structure and a more disciplined dashboard review flow while keeping the public repository portfolio-safe. The update highlights product maturity around signal filtering, confidence thresholds, Telegram notification rules, and post-signal quality checks without publishing the exact proprietary tuning details.
+
 ## Recheck Logic
 
 Historical signal quality is tracked through a recheck flow:
 
-- every logged signal with `conf >= 50` is expected to have entry / TP / SL levels
-- recheck uses a later reference price to compute `P/L %`
+- high-confidence logged signals with `conf >= 70` are prioritized for scheduled recheck
+- qualified rejected signals retain entry / TP / SL levels for audit and later review
+- recheck evaluates whether TP1 or stop levels were touched during the review window, not only the final reference price
 - dashboard summary groups results into win / loss / pending / unknown
 
 The current implementation has gone through several rounds of bug fixing around:
@@ -121,5 +128,6 @@ This repo is meant to showcase:
 - debugging and operations maturity
 - AI-assisted validation layered on top of deterministic rules
 
-For a fuller internal reference, pair this repo with a separate private operations repository or internal notes.
+Contact: `sasi.esports@gmail.com`
 
+For a fuller internal reference, pair this repo with a separate private operations repository or internal notes.

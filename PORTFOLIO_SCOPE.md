@@ -48,3 +48,7 @@ Use this project as a portfolio piece for:
 - Flask + HTML dashboard engineering
 - VPS deployment and reliability debugging
 - signal quality analytics and recheck pipelines
+
+## V2 Portfolio Note
+
+The public version may mention Dashboard V2 and improved indicator configuration, but it should avoid publishing exact scoring weights, proprietary thresholds, private operations notes, tokens, or deployment-specific values.
