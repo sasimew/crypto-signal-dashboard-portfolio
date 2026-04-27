@@ -149,11 +149,11 @@ FILTER_MIN_CONF  = 25    # เหมือนเดิม
 WEAK_MIN_CONF    = 35    # เหมือนเดิม
 CLAUDE_MIN_CONF  = 55    # ↑ จาก 50 (กัน weak gray zone)
 # ─── Tier 5 Auto-approve (แยก TREND vs REBOUND) ─────────────
-# Bug-001 fix: REBOUND ใช้ threshold ต่ำกว่า TREND เพราะ scale /16
-AUTO_APPROVE_CONF         = 80   # TREND_FOLLOW: EMA aligned ต้อง pre ≥ 80
-REBOUND_AUTO_APPROVE_CONF = 68   # REBOUND TIER5-A: true auto-approve (score≥8 margin≥6)
-                                  # data basis: 4/11 eligible approved (36%) — bar สูงพอ
-REBOUND_TIER5_MIN_SCORE   = 8    # TIER5-A: score ≥ 8
+# TREND passed path gives pre_conf≈75, so 80 made T5 practically unreachable.
+# REBOUND score is /16: score 9 ≈ 56%, so T5-A must align with that scale.
+AUTO_APPROVE_CONF         = 75   # TREND_FOLLOW: passed + EMA aligned ต้อง pre ≥ 75
+REBOUND_AUTO_APPROVE_CONF = 55   # REBOUND TIER5-A: true auto-approve (score≥9 margin≥6)
+REBOUND_TIER5_MIN_SCORE   = 9    # TIER5-A: score ≥ 9
 REBOUND_TIER5_MIN_MARGIN  = 6    # TIER5-A: margin ≥ 6
 
 # TIER5-B: reduced Claude gate (ไม่ auto-approve แต่ลด threshold เข้า Claude)

@@ -741,21 +741,45 @@ def api_analyze():
 
         # ── Tier 5: AUTO APPROVE ──────────────────────────────
         auto_approved = False
+        auto_approve_reason = ""
         if pre_conf >= cfg.AUTO_APPROVE_CONF and passed:
             ema_15m_bull = (t15.get("ema_short",0) and t15.get("ema_mid",0) and
                             t15.get("ema_short") > t15.get("ema_mid"))
             ema_1h_bull  = (t1h.get("ema_short",0) and t1h.get("ema_mid",0) and
                             t1h.get("ema_short") > t1h.get("ema_mid"))
-            if final_direction == "Long" and ema_15m_bull and ema_1h_bull:
-                auto_approved = True
-            elif final_direction == "Short" and not ema_15m_bull and not ema_1h_bull:
-                auto_approved = True
+            if strategy == "TREND_FOLLOW":
+                if final_direction == "Long" and ema_15m_bull and ema_1h_bull:
+                    auto_approved = True
+                    auto_approve_reason = f"TREND_FOLLOW: pre={pre_conf}% + EMA bull aligned"
+                elif final_direction == "Short" and not ema_15m_bull and not ema_1h_bull:
+                    auto_approved = True
+                    auto_approve_reason = f"TREND_FOLLOW: pre={pre_conf}% + EMA bear aligned"
+            elif strategy == "REBOUND":
+                rb_ls = rb_data.get("long_score", 0)
+                rb_ss = rb_data.get("short_score", 0)
+                rb_score = rb_ls if final_direction == "Long" else rb_ss
+                rb_margin = (rb_ls - rb_ss) if final_direction == "Long" else (rb_ss - rb_ls)
+                rb_turn_ok = (
+                    (final_direction == "Long" and rb_data.get("rsi_turning_up", False)) or
+                    (final_direction == "Short" and rb_data.get("rsi_turning_down", False))
+                )
+                if (
+                    pre_conf >= cfg.REBOUND_AUTO_APPROVE_CONF
+                    and rb_turn_ok
+                    and rb_score >= cfg.REBOUND_TIER5_MIN_SCORE
+                    and rb_margin >= cfg.REBOUND_TIER5_MIN_MARGIN
+                ):
+                    auto_approved = True
+                    auto_approve_reason = (
+                        f"REBOUND {final_direction.upper()} TIER5-A: pre={pre_conf}% + "
+                        f"score={rb_score} + margin={rb_margin} + rsi_turn"
+                    )
 
         if auto_approved:
             fallback = bot_module.calc_fallback_levels(m["price"], final_direction)
             levels = fallback.copy()
             levels["entry"]       = str(round(m["price"], 2))
-            levels["reason"]      = f"Bot AUTO APPROVE: pre_conf={pre_conf}%"
+            levels["reason"]      = auto_approve_reason or f"Bot AUTO APPROVE: pre_conf={pre_conf}%"
             levels["reason_code"] = "AUTO_APPROVED"
             verdict, conf = "APPROVED", pre_conf
             sig = bot_module.build_signal(
