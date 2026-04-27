@@ -365,7 +365,7 @@ def detect_regime(tf_1h, tf_4h, price):
     total = sum(scores.values()) or 1
     conf  = min(round(max(scores.values()) / total * 100), 95)
 
-    if scores["VOLATILE"] >= 3:
+    if scores["VOLATILE"] >= 3 and scores["VOLATILE"] >= max(scores["TRENDING"], scores["RANGING"]):
         return "VOLATILE", conf, reasons
     if scores["TRENDING"] > scores["RANGING"]:
         return "TRENDING", conf, reasons
@@ -450,12 +450,14 @@ def check_multi_tf(tf_4h, tf_1h, tf_15m, price, tf_2h=None, market_ctx=None):
         if bias_2h == "NEUTRAL":
             return False, "N/A", reasons, tf_bk
         candidate_dir = "Long" if bias_2h == "BULLISH" else "Short"
+        support, oppose = market_context_alignment_score(market_ctx or {}, candidate_dir)
         if not market_ctx or market_ctx.get("ls_ratio") is None:
-            reasons.append(f"2h fallback blocked: L/S context unavailable for {candidate_dir}")
+            reasons.append(f"2h fallback allowed: L/S context unavailable for {candidate_dir}")
+        elif oppose >= 2 and support == 0:
+            reasons.append(f"2h fallback blocked: market context strongly opposes {candidate_dir}")
             return False, "N/A", reasons, tf_bk
-        if not is_market_context_aligned(market_ctx, candidate_dir):
-            reasons.append(f"2h fallback blocked: market context/L/S not aligned for {candidate_dir}")
-            return False, "N/A", reasons, tf_bk
+        elif not is_market_context_aligned(market_ctx, candidate_dir):
+            reasons.append(f"2h fallback allowed with caution: market context not aligned for {candidate_dir}")
         bias_4h = bias_2h
         bias_source = "2h"
         bias_fallback = True
@@ -1082,16 +1084,13 @@ def calc_market_context_bonus(ctx, direction):
     return bonus, reasons
 
 
-def is_market_context_aligned(ctx, direction):
+def market_context_alignment_score(ctx, direction):
     """
     ตรวจว่า market context สนับสนุน direction หรือขัดแย้ง
-    Returns True ถ้า: support >= 1 AND oppose == 0
-
-    ใช้สำหรับ: Claude gate reduction (55→52) เมื่อ ctx aligned
-    ไม่ใช้สำหรับ: auto-approve (เสี่ยงเกิน)
+    Returns: (support, oppose)
     """
     if not ctx:
-        return False
+        return 0, 0
 
     ls    = ctx.get("ls_ratio")
     t_buy = ctx.get("taker_buy_pct")
@@ -1117,6 +1116,16 @@ def is_market_context_aligned(ctx, direction):
             if t_sell >= 53: support += 1
             if t_buy  >= 55: oppose  += 1
 
+    return support, oppose
+
+def is_market_context_aligned(ctx, direction):
+    """
+    Returns True ถ้า: support >= 1 AND oppose == 0
+
+    ใช้สำหรับ: Claude gate reduction (55→52) เมื่อ ctx aligned
+    ไม่ใช้สำหรับ: auto-approve (เสี่ยงเกิน)
+    """
+    support, oppose = market_context_alignment_score(ctx, direction)
     return support >= 1 and oppose == 0
 
 
