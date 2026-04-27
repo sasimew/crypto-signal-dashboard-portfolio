@@ -922,12 +922,14 @@ def api_analyze():
         save_json(cfg.LOG_FILE, logs)
 
         # ── Step 7: ส่ง Telegram ─────────────────────────────
-        # ตาม spec: เฉพาะ APPROVED / WEAK APPROVAL เท่านั้น
-        # REJECTED → ไม่ส่ง (บันทึก log เท่านั้น)
-        # NO TRADE / FILTERED → ไม่ส่ง
+        # APPROVED / WEAK APPROVAL ส่งตามปกติ
+        # REJECTED >=50 ส่งเพื่อ review พร้อม entry/tp/sl
         tg_sent = False; tg_reason = ""
 
-        if tg_trade_eligible(sig):
+        if tg_rejected_eligible(sig):
+            tg_sent = send_telegram_msg(build_tg_rejected_msg(sig))
+            tg_reason = "rejected review alert"
+        elif tg_trade_eligible(sig):
             if strategy == "REBOUND" and rb_data and \
                (rb_data.get("long_score",0) >= 5 or rb_data.get("short_score",0) >= 5):
                 tg_sent   = send_telegram_msg(build_tg_rebound_alert(sig, rb_data))
@@ -936,7 +938,6 @@ def api_analyze():
                 tg_sent   = send_telegram_msg(build_tg_trade_msg(sig))
                 tg_reason = "approved signal"
         else:
-            # REJECTED / NO TRADE / FILTERED / missing levels → log เท่านั้น ไม่ส่ง Telegram
             tg_reason = f"not sent ({verdict or 'UNKNOWN'})"
 
         return jsonify({
@@ -1143,6 +1144,17 @@ def tg_trade_eligible(sig):
         (sig.get("verdict") in ("APPROVED", "WEAK APPROVAL") or is_manual_trade)
         and sig.get("symbol")
         and sig.get("direction")
+        and sig.get("entry")
+        and sig.get("tp1")
+        and (sig.get("hsl") or sig.get("ssl"))
+    )
+
+def tg_rejected_eligible(sig):
+    return bool(
+        sig.get("verdict") == "REJECTED"
+        and (sig.get("conf") or 0) >= 50
+        and sig.get("symbol")
+        and sig.get("direction") in ("Long", "Short")
         and sig.get("entry")
         and sig.get("tp1")
         and (sig.get("hsl") or sig.get("ssl"))

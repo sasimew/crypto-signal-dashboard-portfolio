@@ -365,7 +365,7 @@ def detect_regime(tf_1h, tf_4h, price):
     total = sum(scores.values()) or 1
     conf  = min(round(max(scores.values()) / total * 100), 95)
 
-    if scores["VOLATILE"] >= 3 and scores["VOLATILE"] >= max(scores["TRENDING"], scores["RANGING"]):
+    if scores["VOLATILE"] >= 3 and scores["VOLATILE"] > max(scores["TRENDING"], scores["RANGING"]):
         return "VOLATILE", conf, reasons
     if scores["TRENDING"] > scores["RANGING"]:
         return "TRENDING", conf, reasons
