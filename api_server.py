@@ -1141,6 +1141,9 @@ def _fmt(v):
     try: return f"${float(v):,.2f}"
     except: return "—"
 
+def _fmt_regime(regime):
+    return regime or "—"
+
 def _rsi_line(sig):
     ind = sig.get("indicators", {})
     t15 = ind.get("15m",{}); t1h = ind.get("1h",{}); t4h = ind.get("4h",{})
