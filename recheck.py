@@ -88,9 +88,8 @@ def safe_float(v):
 def check(sig, now_price, candles=None):
     """
     ตรวจสอบ outcome:
-      1) ถ้าแตะ Hard SL หรือ Soft SL ใน window ให้ถือเป็น LOSS
-      2) ถ้าไม่แตะ SL ใช้ P/L ของ reference price เป็นตัวตัดสิน WIN/LOSS
-      3) high/low ใน window ใช้เป็น context ว่าเคยแตะ TP/SL หรือไม่
+      1) ใช้ P/L ของ reference price เป็นตัวตัดสิน WIN/LOSS
+      2) high/low ใน window ใช้เป็น context ว่าเคยแตะ TP/SL หรือไม่
     ถ้าไม่มี entry หรือไม่มีราคาที่ใช้ recheck จะเป็น UNKNOWN
     """
     d = sig.get("direction", "Long")
@@ -112,10 +111,10 @@ def check(sig, now_price, candles=None):
         nonlocal touch
         priority = {
             "H-SL": 60,
-            "S-SL": 55,
             "TP3": 50,
             "TP2": 40,
             "TP1": 30,
+            "S-SL": 20,
         }
         if not touch or priority.get(candidate, 0) > priority.get(touch, 0):
             touch = candidate
@@ -166,12 +165,6 @@ def check(sig, now_price, candles=None):
                 elif hit_tp1:
                     set_touch("TP1")
 
-    if touch in ("H-SL", "S-SL"):
-        stop_price = hsl if touch == "H-SL" else ssl
-        pnl = (stop_price - e) / e * 100 if d == "Long" else (e - stop_price) / e * 100
-        pnl = round(pnl, 2)
-        return "LOSS ❌", pnl, f"SL P/L < 0; Hit {touch}", high, low
-
     pnl = (now_price - e) / e * 100 if d == "Long" else (e - now_price) / e * 100
     pnl = round(pnl, 2)
 
@@ -190,7 +183,7 @@ def check(sig, now_price, candles=None):
 
     return outcome, pnl, level, high, low
 
-def check_day_extreme(sig, fallback_price, candles=None):
+def check_day_extreme(sig, fallback_price, candles=None, hit_candles=None):
     """
     Main recheck outcome:
       - Long uses the highest price after the signal within the Thai day.
@@ -200,11 +193,20 @@ def check_day_extreme(sig, fallback_price, candles=None):
     d = sig.get("direction", "Long")
     _, _, _, high, low = check(sig, fallback_price, candles)
     ref_price = high if d == "Long" and high else low if d == "Short" and low else fallback_price
-    outcome, pnl, level, high, low = check(sig, ref_price, candles)
+    outcome, pnl, level, _, _ = check(sig, ref_price, None)
     if d == "Long" and high and level.startswith("P/L"):
         level = level.replace("P/L", "Day High P/L", 1)
     elif d == "Short" and low and level.startswith("P/L"):
         level = level.replace("P/L", "Day Low P/L", 1)
+
+    # Hit label is evaluated on the 4h window. Hard SL overrides outcome.
+    _, _, hit_level, _, _ = check(sig, ref_price, hit_candles if hit_candles is not None else candles)
+    hit_label = recheck_label(outcome, hit_level)
+    if hit_label in ("TP1", "TP2", "TP3", "S-SL", "H-SL"):
+        level = f"{level}; Hit {hit_label}"
+    if hit_label == "H-SL":
+        outcome = "LOSS ❌"
+        level = f"{level}; H-SL override LOSS"
     return outcome, pnl, level, high, low, ref_price
 
 def filter_candles_until(candles, end_th):
@@ -432,7 +434,11 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
         except Exception:
             sig_time_th = day_start
         candles = get_intraday_klines(sym, max(sig_time_th, day_start), day_end)
-        outcome_day, pnl_day, level_day, day_high, day_low, day_ref_price = check_day_extreme(sig, now, candles)
+        hit_end_th = min(max(sig_time_th, day_start) + timedelta(hours=4), day_end)
+        hit_candles = filter_candles_until(candles, hit_end_th)
+        outcome_day, pnl_day, level_day, day_high, day_low, day_ref_price = check_day_extreme(
+            sig, now, candles, hit_candles=hit_candles
+        )
         windows = check_windows(sig, candles, now, max(sig_time_th, day_start), day_end)
         main = {
             "outcome": outcome_day, "pnl_pct": pnl_day, "level_hit": level_day,
