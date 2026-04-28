@@ -4,7 +4,7 @@ Signal Recheck Set2V1
 - รันทุก 00:00 TH (17:00 UTC via cron)
 - เช็คทุก signal ที่ conf >= 70
 - ใช้ 4h หลัง signal เป็น benchmark หลัก
-- ถ้า hit TP1/TP2/TP3 ระหว่างทาง ให้ถือเป็น WIN แม้ปลาย window กลับมาติดลบ
+- ตัดสิน WIN/LOSS จาก P/L ณ benchmark หลักเท่านั้น
 """
 import json, os, sys, urllib.request, urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -88,9 +88,8 @@ def safe_float(v):
 def check(sig, now_price, candles=None):
     """
     ตรวจสอบ outcome:
-      1) ถ้า intraday candle เคย hit TP1/TP2/TP3 ให้ถือเป็น WIN แม้ราคาปลายวันกลับมาติดลบ
-      2) ถ้า hit Soft SL ก่อน TP ให้บันทึก SOFT SL
-      3) ถ้าไม่ hit level ใด ใช้ P/L ปลายวัน
+      1) ใช้ P/L ณราคาปิดของ window เป็นตัวตัดสิน WIN/LOSS เท่านั้น
+      2) high/low ใน window ใช้เป็น context ว่าเคยแตะ TP/SL หรือไม่ แต่ไม่ override outcome
     ถ้าไม่มี entry หรือไม่มีราคาที่ใช้ recheck จะเป็น UNKNOWN
     """
     d = sig.get("direction", "Long")
@@ -105,6 +104,7 @@ def check(sig, now_price, candles=None):
     ssl = safe_float(sig.get("ssl"))
     high = None
     low = None
+    touch = None
 
     if candles:
         highs = [safe_float(c[2]) for c in candles if len(c) > 3]
@@ -124,19 +124,27 @@ def check(sig, now_price, candles=None):
                 hit_tp2 = tp2 and c_high >= tp2
                 hit_tp1 = tp1 and c_high >= tp1
                 hit_sl = ssl and c_low <= ssl
-                if hit_tp3: return "WIN ✅ TP3", round((tp3 - e) / e * 100, 2), "TP3", high, low
-                if hit_tp2: return "WIN ✅ TP2", round((tp2 - e) / e * 100, 2), "TP2", high, low
-                if hit_tp1: return "WIN ✅ TP1", round((tp1 - e) / e * 100, 2), "TP1", high, low
-                if hit_sl: return "SOFT SL ⚠️", round((ssl - e) / e * 100, 2), "Soft SL", high, low
+                if hit_tp3:
+                    touch = "Touched TP3"
+                elif hit_tp2 and touch not in ("Touched TP3",):
+                    touch = "Touched TP2"
+                elif hit_tp1 and touch not in ("Touched TP3", "Touched TP2"):
+                    touch = "Touched TP1"
+                elif hit_sl and not touch:
+                    touch = "Touched Soft SL"
             elif d == "Short":
                 hit_tp3 = tp3 and c_low <= tp3
                 hit_tp2 = tp2 and c_low <= tp2
                 hit_tp1 = tp1 and c_low <= tp1
                 hit_sl = ssl and c_high >= ssl
-                if hit_tp3: return "WIN ✅ TP3", round((e - tp3) / e * 100, 2), "TP3", high, low
-                if hit_tp2: return "WIN ✅ TP2", round((e - tp2) / e * 100, 2), "TP2", high, low
-                if hit_tp1: return "WIN ✅ TP1", round((e - tp1) / e * 100, 2), "TP1", high, low
-                if hit_sl: return "SOFT SL ⚠️", round((e - ssl) / e * 100, 2), "Soft SL", high, low
+                if hit_tp3:
+                    touch = "Touched TP3"
+                elif hit_tp2 and touch not in ("Touched TP3",):
+                    touch = "Touched TP2"
+                elif hit_tp1 and touch not in ("Touched TP3", "Touched TP2"):
+                    touch = "Touched TP1"
+                elif hit_sl and not touch:
+                    touch = "Touched Soft SL"
 
     pnl = (now_price - e) / e * 100 if d == "Long" else (e - now_price) / e * 100
     pnl = round(pnl, 2)
@@ -150,6 +158,9 @@ def check(sig, now_price, candles=None):
     else:
         outcome = "0"
         level = "P/L = 0"
+
+    if touch:
+        level = f"{level}; {touch}"
 
     return outcome, pnl, level, high, low
 
