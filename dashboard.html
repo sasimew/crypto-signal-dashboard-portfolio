@@ -2370,18 +2370,35 @@ async function loadRecheck(){
   }
 
   function displayLabel(x){
-    if(x.recheck_label) return x.recheck_label;
+    if(x.recheck_label){
+      var saved = String(x.recheck_label);
+      if(saved==='HIT TP'){
+        var savedLevel = String(x.level_hit||'');
+        if(savedLevel.includes('TP3')) return 'TP3';
+        if(savedLevel.includes('TP2')) return 'TP2';
+        if(savedLevel.includes('TP1')) return 'TP1';
+        return 'HIT';
+      }
+      if(saved==='WIN') return 'HIT';
+      return saved;
+    }
     var out = displayOutcome(x);
     var level = String(x.level_hit||'');
     if(out.includes('UNKNOWN') || String(out).trim()==='0') return 'WAIT';
+    if(level.includes('TP3')) return 'TP3';
+    if(level.includes('TP2')) return 'TP2';
+    if(level.includes('TP1')) return 'TP1';
+    if(level.includes('H-SL') || level.includes('Hard SL')) return 'H-SL';
+    if(level.includes('S-SL') || level.includes('Soft SL')) return 'S-SL';
     if(out.includes('LOSS') || out.includes('SOFT SL')) return 'MISS';
-    if(out.includes('WIN')) return (level.includes('Touched TP') || level.includes('TP')) ? 'HIT TP' : 'WIN';
+    if(out.includes('WIN')) return 'HIT';
     return 'WAIT';
   }
 
   var wins   = deduped.filter(x=>displayOutcome(x).includes('WIN')).length;
   var losses = deduped.filter(x=>displayOutcome(x).includes('LOSS')).length;
-  var hitTp  = deduped.filter(x=>displayLabel(x)==='HIT TP').length;
+  var hitTp  = deduped.filter(x=>String(displayLabel(x)).startsWith('TP')).length;
+  var hitSl  = deduped.filter(x=>String(displayLabel(x)).endsWith('-SL')).length;
   var miss   = deduped.filter(x=>displayLabel(x)==='MISS').length;
   var wait   = deduped.filter(x=>displayLabel(x)==='WAIT').length;
   var flat   = deduped.filter(x=>String(displayOutcome(x)||'').trim()==='0').length;
@@ -2401,9 +2418,11 @@ async function loadRecheck(){
 
   function labelCell(x){
     var label = displayLabel(x);
-    if(label==='HIT TP') return '<span class="badge b-approved">HIT TP ✅</span>';
+    if(label==='TP1' || label==='TP2' || label==='TP3') return `<span class="badge b-approved">${label} ✅</span>`;
+    if(label==='S-SL') return '<span class="badge b-weak">S-SL ⚠️</span>';
+    if(label==='H-SL') return '<span class="badge b-rejected">H-SL ❌</span>';
     if(label==='MISS') return '<span class="badge b-rejected">MISS ❌</span>';
-    if(label==='WIN') return '<span class="badge b-approved">WIN ✅</span>';
+    if(label==='HIT') return '<span class="badge b-approved">HIT ✅</span>';
     return '<span class="badge b-notrade">WAIT</span>';
   }
 
@@ -2418,10 +2437,10 @@ async function loadRecheck(){
       <div class="stat"><div class="stat-label">Total</div><div class="stat-value">${deduped.length}</div></div>
     </div>
     ${(flat+unknown)>0?`<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Flat: ${flat} | Unknown: ${unknown}</div>`:''}
-    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Labels: Hit TP ${hitTp} | Miss ${miss} | Wait ${wait}</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Hit: TP ${hitTp} | SL ${hitSl} | Miss ${miss} | Wait ${wait}</div>
     <div class="tbl-wrap">
     <table>
-      <thead><tr><th>Date</th><th>Signal</th><th>Symbol</th><th>Dir</th><th>Verdict</th><th>Conf</th><th>Entry</th><th>TP1</th><th>Hard SL</th><th>P&amp;L</th><th>Outcome</th><th>Label</th></tr></thead>
+      <thead><tr><th>Date</th><th>Signal</th><th>Symbol</th><th>Dir</th><th>Verdict</th><th>Conf</th><th>Entry</th><th>TP1</th><th>Hard SL</th><th>P&amp;L</th><th>Outcome</th><th>Hit</th></tr></thead>
       <tbody>
       ${deduped.map(x=>`<tr>
         <td style="font-size:10px;color:var(--muted)">${x.recheck_date||x.signal_time?.slice(0,10)||x.time?.slice(0,10)||'—'}</td>

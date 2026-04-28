@@ -102,9 +102,22 @@ def check(sig, now_price, candles=None):
     tp2 = safe_float(sig.get("tp2"))
     tp3 = safe_float(sig.get("tp3"))
     ssl = safe_float(sig.get("ssl"))
+    hsl = safe_float(sig.get("hsl"))
     high = None
     low = None
     touch = None
+
+    def set_touch(candidate):
+        nonlocal touch
+        priority = {
+            "TP3": 50,
+            "TP2": 40,
+            "TP1": 30,
+            "H-SL": 20,
+            "S-SL": 10,
+        }
+        if not touch or priority.get(candidate, 0) > priority.get(touch, 0):
+            touch = candidate
 
     if candles:
         highs = [safe_float(c[2]) for c in candles if len(c) > 3]
@@ -123,28 +136,34 @@ def check(sig, now_price, candles=None):
                 hit_tp3 = tp3 and c_high >= tp3
                 hit_tp2 = tp2 and c_high >= tp2
                 hit_tp1 = tp1 and c_high >= tp1
-                hit_sl = ssl and c_low <= ssl
+                hit_hsl = hsl and c_low <= hsl
+                hit_ssl = ssl and c_low <= ssl
                 if hit_tp3:
-                    touch = "Touched TP3"
-                elif hit_tp2 and touch not in ("Touched TP3",):
-                    touch = "Touched TP2"
-                elif hit_tp1 and touch not in ("Touched TP3", "Touched TP2"):
-                    touch = "Touched TP1"
-                elif hit_sl and not touch:
-                    touch = "Touched Soft SL"
+                    set_touch("TP3")
+                elif hit_tp2:
+                    set_touch("TP2")
+                elif hit_tp1:
+                    set_touch("TP1")
+                elif hit_hsl:
+                    set_touch("H-SL")
+                elif hit_ssl:
+                    set_touch("S-SL")
             elif d == "Short":
                 hit_tp3 = tp3 and c_low <= tp3
                 hit_tp2 = tp2 and c_low <= tp2
                 hit_tp1 = tp1 and c_low <= tp1
-                hit_sl = ssl and c_high >= ssl
+                hit_hsl = hsl and c_high >= hsl
+                hit_ssl = ssl and c_high >= ssl
                 if hit_tp3:
-                    touch = "Touched TP3"
-                elif hit_tp2 and touch not in ("Touched TP3",):
-                    touch = "Touched TP2"
-                elif hit_tp1 and touch not in ("Touched TP3", "Touched TP2"):
-                    touch = "Touched TP1"
-                elif hit_sl and not touch:
-                    touch = "Touched Soft SL"
+                    set_touch("TP3")
+                elif hit_tp2:
+                    set_touch("TP2")
+                elif hit_tp1:
+                    set_touch("TP1")
+                elif hit_hsl:
+                    set_touch("H-SL")
+                elif hit_ssl:
+                    set_touch("S-SL")
 
     pnl = (now_price - e) / e * 100 if d == "Long" else (e - now_price) / e * 100
     pnl = round(pnl, 2)
@@ -160,7 +179,7 @@ def check(sig, now_price, candles=None):
         level = "P/L = 0"
 
     if touch:
-        level = f"{level}; {touch}"
+        level = f"{level}; Hit {touch}"
 
     return outcome, pnl, level, high, low
 
@@ -209,10 +228,13 @@ def recheck_label(outcome, level):
     text = f"{outcome or ''} {level or ''}"
     if "UNKNOWN" in text or str(outcome).strip() == "0":
         return "WAIT"
+    for label in ("TP3", "TP2", "TP1", "H-SL", "S-SL"):
+        if label in text:
+            return label
     if "LOSS" in text or "SOFT SL" in text:
         return "MISS"
     if "WIN" in text:
-        return "HIT TP" if "Touched TP" in text or "TP" in text else "WIN"
+        return "HIT"
     return "WAIT"
 
 def fmt(v):
@@ -466,7 +488,8 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
         losses  = [r for r in results if "LOSS"    in r["outcome"]]
         softsl  = [r for r in results if "SOFT"    in r["outcome"]]
         pending = [r for r in results if "PENDING" in r["outcome"]]
-        hit_tp = [r for r in results if r.get("recheck_label") == "HIT TP"]
+        hit_tp = [r for r in results if str(r.get("recheck_label", "")).startswith("TP")]
+        hit_sl = [r for r in results if str(r.get("recheck_label", "")).endswith("-SL")]
         miss = [r for r in results if r.get("recheck_label") == "MISS"]
         wait = [r for r in results if r.get("recheck_label") == "WAIT"]
         wr = round(len(wins)/(len(wins)+len(losses))*100) if (wins or losses) else None
@@ -482,7 +505,7 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
         msg  = f"📊 *{RECHECK_VERSION} — {date_s}*\n"
         msg += f"_(เฉพาะ conf >= 70 | main benchmark: {MAIN_WINDOW} หลัง signal)_\n\n"
         msg += f"📈 WIN: *{len(wins)}* | 📉 LOSS: *{len(losses)}* | ⚠️ SoftSL: {len(softsl)} | ⏳ Pending: {len(pending)}\n"
-        msg += f"🏷 Label: hit TP {len(hit_tp)} | miss {len(miss)} | wait {len(wait)}\n"
+        msg += f"🏷 Hit: TP {len(hit_tp)} | SL {len(hit_sl)} | miss {len(miss)} | wait {len(wait)}\n"
         if wr is not None:
             msg += f"🎯 *Win Rate: {wr}%*\n\n"
 
