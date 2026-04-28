@@ -3,8 +3,8 @@
 Signal Recheck Set2V1
 - รันทุก 00:00 TH (17:00 UTC via cron)
 - เช็คทุก signal ที่ conf >= 70
-- ใช้ 4h หลัง signal เป็น benchmark หลัก
-- ตัดสิน WIN/LOSS จาก P/L ณ benchmark หลักเท่านั้น
+- ใช้ day high/low หลัง signal เป็น benchmark หลัก
+- Long ใช้ day high, Short ใช้ day low เพื่อหา best intraday P/L
 """
 import json, os, sys, urllib.request, urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -21,7 +21,7 @@ def now_thai(): return datetime.now(TZ_THAI)
 def log(m): print(f"[{now_thai().strftime('%Y-%m-%d %H:%M:%S')} TH] {m}", flush=True)
 BOT_VERSION = getattr(cfg, "BOT_VERSION", "SET2v2")
 RECHECK_VERSION = "Signal Recheck Set2V1"
-MAIN_WINDOW = "4h"
+MAIN_WINDOW = "day_extreme"
 
 def get_price(sym):
     try:
@@ -182,6 +182,23 @@ def check(sig, now_price, candles=None):
         level = f"{level}; Hit {touch}"
 
     return outcome, pnl, level, high, low
+
+def check_day_extreme(sig, fallback_price, candles=None):
+    """
+    Main recheck outcome:
+      - Long uses the highest price after the signal within the Thai day.
+      - Short uses the lowest price after the signal within the Thai day.
+    This measures whether the setup had a profitable intraday path even if price later reversed.
+    """
+    d = sig.get("direction", "Long")
+    _, _, _, high, low = check(sig, fallback_price, candles)
+    ref_price = high if d == "Long" and high else low if d == "Short" and low else fallback_price
+    outcome, pnl, level, high, low = check(sig, ref_price, candles)
+    if d == "Long" and high:
+        level = level.replace("P/L", "Day High P/L", 1)
+    elif d == "Short" and low:
+        level = level.replace("P/L", "Day Low P/L", 1)
+    return outcome, pnl, level, high, low, ref_price
 
 def filter_candles_until(candles, end_th):
     end_ms = int(end_th.astimezone(timezone.utc).timestamp() * 1000)
@@ -408,11 +425,11 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
         except Exception:
             sig_time_th = day_start
         candles = get_intraday_klines(sym, max(sig_time_th, day_start), day_end)
-        outcome_day, pnl_day, level_day, day_high, day_low = check(sig, now, candles)
+        outcome_day, pnl_day, level_day, day_high, day_low, day_ref_price = check_day_extreme(sig, now, candles)
         windows = check_windows(sig, candles, now, max(sig_time_th, day_start), day_end)
-        main = windows.get(MAIN_WINDOW) or {
+        main = {
             "outcome": outcome_day, "pnl_pct": pnl_day, "level_hit": level_day,
-            "price": now, "high": day_high, "low": day_low,
+            "price": day_ref_price, "high": day_high, "low": day_low,
         }
         raw_outcome = main["outcome"]
         pnl = main["pnl_pct"]
@@ -441,6 +458,7 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
             "tp2":           sig.get("tp2"),
             "tp3":           sig.get("tp3"),
             "current_price": now,
+            "benchmark_price": main.get("price"),
             "main_window": MAIN_WINDOW,
             "evaluation_type": evaluation_type,
             "would_outcome": would_outcome,
@@ -468,6 +486,7 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
                     "pnl_pct":   pnl,
                     "level_hit": level,
                     "price":     now,
+                    "benchmark_price": main.get("price"),
                     "main_window": MAIN_WINDOW,
                     "evaluation_type": evaluation_type,
                     "would_outcome": would_outcome,
@@ -503,7 +522,7 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
 
         date_s = target_date.strftime("%d %b %Y")
         msg  = f"📊 *{RECHECK_VERSION} — {date_s}*\n"
-        msg += f"_(เฉพาะ conf >= 70 | main benchmark: {MAIN_WINDOW} หลัง signal)_\n\n"
+        msg += f"_(เฉพาะ conf >= 70 | main benchmark: day high/low หลัง signal)_\n\n"
         msg += f"📈 WIN: *{len(wins)}* | 📉 LOSS: *{len(losses)}* | ⚠️ SoftSL: {len(softsl)} | ⏳ Pending: {len(pending)}\n"
         msg += f"🏷 Hit: TP {len(hit_tp)} | SL {len(hit_sl)} | miss {len(miss)} | wait {len(wait)}\n"
         if wr is not None:

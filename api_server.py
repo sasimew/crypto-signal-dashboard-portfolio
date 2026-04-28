@@ -495,6 +495,7 @@ def api_recheck():
             "tp2": coalesce(rr.get("tp2"), s.get("tp2"), s.get("suggested_tp2")),
             "tp3": coalesce(rr.get("tp3"), s.get("tp3"), s.get("suggested_tp3")),
             "current_price": coalesce(rr.get("current_price"), sr.get("price")),
+            "benchmark_price": coalesce(rr.get("benchmark_price"), sr.get("benchmark_price")),
             "outcome": coalesce(rr.get("outcome"), sr.get("outcome")),
             "evaluation_type": coalesce(rr.get("evaluation_type"), sr.get("evaluation_type")),
             "would_outcome": coalesce(rr.get("would_outcome"), sr.get("would_outcome")),
@@ -1047,7 +1048,7 @@ def api_export():
                   "regime","strategy_used","filter_reason","reject_reason",
                   "reason","main_score_note","pre_conf","ai_conf","gate_path",
                   "funding_rate","recheck_outcome","recheck_pnl_pct",
-                  "recheck_level_hit","recheck_main_window","recheck_label",
+                  "recheck_level_hit","recheck_main_window","recheck_benchmark_price","recheck_label",
                   "recheck_evaluation_type","recheck_would_outcome"]
         writer = csv_mod.DictWriter(output, fieldnames=fields, extrasaction='ignore')
         writer.writeheader()
@@ -1068,6 +1069,7 @@ def api_export():
             row["recheck_pnl_pct"] = rc.get("pnl_pct", "")
             row["recheck_level_hit"] = rc.get("level_hit", "")
             row["recheck_main_window"] = rc.get("main_window", "")
+            row["recheck_benchmark_price"] = rc.get("benchmark_price", "")
             row["recheck_label"] = rc.get("recheck_label", "")
             row["recheck_evaluation_type"] = rc.get("evaluation_type", "")
             row["recheck_would_outcome"] = rc.get("would_outcome", "")

@@ -248,6 +248,7 @@ for s in signal_log:
         "recheck_pnl":     rc.get("pnl_pct"),
         "recheck_level":   rc.get("level_hit"),
         "recheck_main_window": rc.get("main_window"),
+        "recheck_benchmark_price": rc.get("benchmark_price"),
         "recheck_label": rc.get("recheck_label"),
         "recheck_evaluation_type": rc.get("evaluation_type"),
         "recheck_would_outcome": rc.get("would_outcome"),
