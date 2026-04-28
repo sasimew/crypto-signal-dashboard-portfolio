@@ -184,6 +184,22 @@ def check_windows(sig, candles, fallback_price, sig_time_th, day_end):
         }
     return windows
 
+def classify_recheck_outcome(sig, outcome, level):
+    """
+    REJECTED rows are validation rows, not trades.
+    If a rejected setup would have reached TP, mark it as a missed opportunity;
+    otherwise mark the rejection as valid so dashboard win rate is not polluted.
+    """
+    if sig.get("verdict") != "REJECTED":
+        return outcome, "trade_result", None
+    if "WIN" in str(outcome):
+        return f"MISSED_TP ⚠️ {level}", "rejected_validation", outcome
+    if "UNKNOWN" in str(outcome):
+        return "UNKNOWN", "rejected_validation", outcome
+    if str(outcome).strip() == "0":
+        return "REJECT_NEUTRAL", "rejected_validation", outcome
+    return "VALID_REJECT ✅", "rejected_validation", outcome
+
 def fmt(v):
     if not v: return "—"
     try: return f"${float(v):,.2f}"
@@ -361,9 +377,10 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
             "outcome": outcome_day, "pnl_pct": pnl_day, "level_hit": level_day,
             "price": now, "high": day_high, "low": day_low,
         }
-        outcome = main["outcome"]
+        raw_outcome = main["outcome"]
         pnl = main["pnl_pct"]
         level = main["level_hit"]
+        outcome, evaluation_type, would_outcome = classify_recheck_outcome(sig, raw_outcome, level)
         main_label = MAIN_WINDOW
         log(f"  {sig.get('id','?')}: {sig.get('direction')} @ {fmt(sig.get('entry'))} "
             f"→ {main_label}={fmt(main.get('price'))} | H{main_label}={fmt(main.get('high'))} L{main_label}={fmt(main.get('low'))} "
@@ -387,6 +404,8 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
             "tp3":           sig.get("tp3"),
             "current_price": now,
             "main_window": MAIN_WINDOW,
+            "evaluation_type": evaluation_type,
+            "would_outcome": would_outcome,
             "windows":       windows,
             "day_high_after_signal": day_high,
             "day_low_after_signal":  day_low,
@@ -411,6 +430,8 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
                     "level_hit": level,
                     "price":     now,
                     "main_window": MAIN_WINDOW,
+                    "evaluation_type": evaluation_type,
+                    "would_outcome": would_outcome,
                     "windows":    windows,
                     "day_high_after_signal": day_high,
                     "day_low_after_signal":  day_low,
@@ -423,10 +444,14 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
                 break
 
     if send_summary:
-        wins    = [r for r in results if "WIN"     in r["outcome"]]
-        losses  = [r for r in results if "LOSS"    in r["outcome"]]
+        trade_results = [r for r in results if r.get("evaluation_type") != "rejected_validation"]
+        rejected_eval = [r for r in results if r.get("evaluation_type") == "rejected_validation"]
+        wins    = [r for r in trade_results if "WIN"     in r["outcome"]]
+        losses  = [r for r in trade_results if "LOSS"    in r["outcome"]]
         softsl  = [r for r in results if "SOFT"    in r["outcome"]]
         pending = [r for r in results if "PENDING" in r["outcome"]]
+        valid_rejects = [r for r in rejected_eval if "VALID_REJECT" in r["outcome"]]
+        missed_tp = [r for r in rejected_eval if "MISSED_TP" in r["outcome"]]
         wr = round(len(wins)/(len(wins)+len(losses))*100) if (wins or losses) else None
 
         tp1_hits = sum(1 for r in wins if "TP1" in r["outcome"])
@@ -440,6 +465,8 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
         msg  = f"📊 *{RECHECK_VERSION} — {date_s}*\n"
         msg += f"_(เฉพาะ conf >= 70 | main benchmark: {MAIN_WINDOW} หลัง signal)_\n\n"
         msg += f"📈 WIN: *{len(wins)}* | 📉 LOSS: *{len(losses)}* | ⚠️ SoftSL: {len(softsl)} | ⏳ Pending: {len(pending)}\n"
+        if rejected_eval:
+            msg += f"🧪 Reject validation: valid {len(valid_rejects)} | missed TP {len(missed_tp)}\n"
         if wr is not None:
             msg += f"🎯 *Win Rate: {wr}%*\n\n"
 

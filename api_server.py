@@ -496,6 +496,8 @@ def api_recheck():
             "tp3": coalesce(rr.get("tp3"), s.get("tp3"), s.get("suggested_tp3")),
             "current_price": coalesce(rr.get("current_price"), sr.get("price")),
             "outcome": coalesce(rr.get("outcome"), sr.get("outcome")),
+            "evaluation_type": coalesce(rr.get("evaluation_type"), sr.get("evaluation_type")),
+            "would_outcome": coalesce(rr.get("would_outcome"), sr.get("would_outcome")),
             "pnl_pct": coalesce(rr.get("pnl_pct"), sr.get("pnl_pct")),
             "level_hit": coalesce(rr.get("level_hit"), sr.get("level_hit"), "—"),
             "reason": s.get("reject_reason") or s.get("reason") or s.get("filter_reason"),

@@ -2360,14 +2360,21 @@ async function loadRecheck(){
     seen.add(key); return true;
   });
 
-  var wins   = deduped.filter(x=>x.outcome&&x.outcome.includes('WIN')).length;
-  var losses = deduped.filter(x=>x.outcome&&x.outcome.includes('LOSS')).length;
+  var tradeRows = deduped.filter(x=>x.evaluation_type !== 'rejected_validation');
+  var rejectRows = deduped.filter(x=>x.evaluation_type === 'rejected_validation');
+  var wins   = tradeRows.filter(x=>x.outcome&&x.outcome.includes('WIN')).length;
+  var losses = tradeRows.filter(x=>x.outcome&&x.outcome.includes('LOSS')).length;
+  var validRejects = rejectRows.filter(x=>x.outcome&&x.outcome.includes('VALID_REJECT')).length;
+  var missedTp = rejectRows.filter(x=>x.outcome&&x.outcome.includes('MISSED_TP')).length;
   var flat   = deduped.filter(x=>String(x.outcome||'').trim()==='0').length;
   var unknown= deduped.filter(x=>x.outcome&&x.outcome.includes('UNKNOWN')).length;
   var wr     = wins+losses>0?Math.round(wins/(wins+losses)*100):null;
 
   function outcomeCell(x){
     if(!x.outcome) return '<span class="badge b-notrade">UNKNOWN</span>';
+    if(x.outcome.includes('VALID_REJECT')) return '<span class="badge b-approved">VALID ✅</span>';
+    if(x.outcome.includes('MISSED_TP')) return '<span class="badge b-weak">MISSED TP ⚠️</span>';
+    if(x.outcome.includes('REJECT_NEUTRAL')) return '<span class="badge b-notrade">NEUTRAL</span>';
     if(x.outcome.includes('WIN'))     return '<span class="badge b-approved">WIN ✅</span>';
     if(x.outcome.includes('LOSS'))    return '<span class="badge b-rejected">LOSS ❌</span>';
     if(String(x.outcome).trim()==='0') return '<span class="badge b-notrade">0</span>';
@@ -2386,6 +2393,7 @@ async function loadRecheck(){
       <div class="stat"><div class="stat-label">Total</div><div class="stat-value">${deduped.length}</div></div>
     </div>
     ${(flat+unknown)>0?`<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Flat: ${flat} | Unknown: ${unknown}</div>`:''}
+    ${rejectRows.length>0?`<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Rejected validation: Valid ${validRejects} | Missed TP ${missedTp}</div>`:''}
     <div class="tbl-wrap">
     <table>
       <thead><tr><th>Date</th><th>Signal</th><th>Symbol</th><th>Dir</th><th>Verdict</th><th>Conf</th><th>Entry</th><th>TP1</th><th>Hard SL</th><th>P&amp;L</th><th>Outcome</th></tr></thead>
