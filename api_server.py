@@ -5,7 +5,7 @@ Crypto Signal — Flask API Server v3
 - /api/binance endpoint สำหรับ dashboard Binance tab
 - Bug fix: tf_15m error handling
 """
-import json, os, sys, time, urllib.request, urllib.parse
+import json, os, sys, time, traceback, urllib.request, urllib.parse
 from datetime import datetime, timezone, timedelta
 
 TZ_THAI = timezone(timedelta(hours=7))
@@ -983,6 +983,7 @@ def api_analyze():
     except Exception as e:
         error_type, error_desc = bot_module.classify_runtime_error(e)
         print(f"[api_analyze] {symbol} {direction} failed: {error_type} — {error_desc}", flush=True)
+        traceback.print_exc()
         return jsonify({
             "ok": False,
             "error": str(e),
