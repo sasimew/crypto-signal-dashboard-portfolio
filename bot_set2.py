@@ -1661,6 +1661,28 @@ def bot_gate_reason(pre_conf, passed=None, claude_gate=None):
         return f"Bot: pre_conf={pre_conf}% below Claude gate {gate}%{filter_text}"
     return f"Bot: pre_conf={pre_conf}% blocked before Claude validation"
 
+def main_score_note(verdict, conf, pre_conf=None, claude_called=False, gate_path=""):
+    gate = str(gate_path or "")
+    if claude_called and gate.startswith("TIER4"):
+        return "Main score=AI confidence"
+    if claude_called and gate.startswith("MANUAL"):
+        return "Main score=bot pre-score; AI score stored separately"
+    if gate.startswith("TIER5"):
+        return "Main score=bot auto score"
+    if verdict in ("NO TRADE", "WEAK SIGNAL") or gate.startswith("TIER3") or "LOW_LIQUIDITY" in gate:
+        return "Main score=capped bot score"
+    if claude_called:
+        return "Main score=AI confidence"
+    return "Main score=bot score"
+
+def with_main_score_note(reason, note):
+    reason = str(reason or "").strip()
+    if not note:
+        return reason
+    if note in reason:
+        return reason
+    return f"{note} | {reason}" if reason else note
+
 def low_liquidity_block_reason(tf_15m, pre_conf, passed=None, claude_gate=None):
     reason = low_liquidity_reason(tf_15m)
     if not reason:
@@ -1750,7 +1772,9 @@ def build_signal(symbol, direction, m, verdict, conf, levels,
     tp1_val   = levels.get("tp1")   if (is_tradeable or allow_logged) else None
     tp2_val   = levels.get("tp2")   if (is_tradeable or allow_logged) else None
     tp3_val   = levels.get("tp3")   if (is_tradeable or allow_logged) else None
-    reject_reason = "" if is_tradeable else (levels.get("reason") or verdict)
+    score_note = main_score_note(verdict, conf, pre_conf=pre_conf, claude_called=claude_called, gate_path=gate_path)
+    reason = with_main_score_note(levels.get("reason") or "", score_note)
+    reject_reason = "" if is_tradeable else with_main_score_note(levels.get("reason") or verdict, score_note)
 
     return {
         "id":          f"{symbol}_{now_thai().strftime('%Y%m%d_%H%M')}",
@@ -1802,6 +1826,8 @@ def build_signal(symbol, direction, m, verdict, conf, levels,
         "ssl": ssl_val, "hsl": hsl_val,
         "tp1": tp1_val, "tp2": tp2_val, "tp3": tp3_val,
         "reason_code":   levels.get("reason_code", ""),
+        "main_score_note": score_note,
+        "reason":        reason,
         "risk_flags":    levels.get("risk_flags", []),
         "reject_reason": reject_reason,
         "ai_text":       ai_text,
@@ -1918,6 +1944,9 @@ def main():
         # ── 5-Tier Gate ────────────────────────────────────────
         def _base_log(verdict_val, gate_path, claude_called=False):
             th_now = now_thai()
+            score_note = main_score_note(verdict_val, pre_conf, pre_conf=pre_conf,
+                                         claude_called=claude_called, gate_path=gate_path)
+            base_reject = filter_reason if verdict_val in ("FILTERED","NO TRADE","WEAK SIGNAL") else ""
             return {
                 "id": f"{symbol}_{th_now.strftime('%Y%m%d_%H%M')}",
                 "time": th_now.isoformat(), "time_thai": th_now.strftime('%Y-%m-%d %H:%M TH'),
@@ -1930,7 +1959,9 @@ def main():
                 "gate_path": gate_path, "claude_called": claude_called,
                 "filter_passed": passed, "filter_reason": filter_reason,
                 "block_reason_code": block_reason_code or "",
-                "reject_reason": filter_reason if verdict_val in ("FILTERED","NO TRADE","WEAK SIGNAL") else "",
+                "main_score_note": score_note,
+                "reason": score_note,
+                "reject_reason": with_main_score_note(base_reject, score_note) if base_reject else "",
                 "indicators": {
                     "15m": {"rsi": t15.get("rsi"), "macd_hist": t15.get("macd_hist"),
                             "bb_pct": t15.get("bb_pct"), "ema_short": t15.get("ema_short"),
@@ -1975,7 +2006,9 @@ def main():
             rec["conf"] = capped_conf
             rec["pre_conf_before_block"] = pre_conf
             rec["block_reason_code"] = "LOW_LIQUIDITY_BLOCK"
-            rec["reject_reason"] = low_liq
+            rec["main_score_note"] = main_score_note("NO TRADE", capped_conf, pre_conf=pre_conf, gate_path=rec["gate_path"])
+            rec["reason"] = rec["main_score_note"]
+            rec["reject_reason"] = with_main_score_note(low_liq, rec["main_score_note"])
             logs.insert(0, rec)
             time.sleep(1); continue
 
@@ -1985,7 +2018,10 @@ def main():
                 skipped += 1
                 log(f"  🤖 TIER3: pre_conf={pre_conf}% + filter fail → NO TRADE")
                 rec = _base_log("NO TRADE", "TIER3_BOT_REJECT")
-                rec["reject_reason"] = f"Bot: pre_conf={pre_conf}% below Claude gate, filter not passed"
+                rec["reject_reason"] = with_main_score_note(
+                    f"Bot: pre_conf={pre_conf}% below Claude gate, filter not passed",
+                    rec.get("main_score_note"),
+                )
                 logs.insert(0, rec)
                 time.sleep(1); continue
             else:
@@ -2005,7 +2041,10 @@ def main():
                 skipped += 1
                 log(f"  🚫 SET2 PRE-FILTER: {skip_reason}")
                 rec = _base_log("NO TRADE", "SET2_PREFILTER_BLOCK")
-                rec["reject_reason"] = f"SET2 pre-filter: {skip_reason}"
+                rec["reject_reason"] = with_main_score_note(
+                    f"SET2 pre-filter: {skip_reason}",
+                    rec.get("main_score_note"),
+                )
                 logs.insert(0, rec)
                 time.sleep(1); continue
 
@@ -2121,7 +2160,7 @@ def main():
             pre_conf = capped_conf
             rec = _base_log("NO TRADE", "TIER3_NO_DIRECTION")
             rec["pre_conf_before_no_direction"] = pre_conf_before_no_direction
-            rec["reject_reason"] = reason
+            rec["reject_reason"] = with_main_score_note(reason, rec.get("main_score_note"))
             logs.insert(0, rec)
             time.sleep(1); continue
 

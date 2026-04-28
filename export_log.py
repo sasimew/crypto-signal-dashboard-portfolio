@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Export Log — ดึง signal_log.json และ recheck_log.json ออกมาพร้อม summary
-รันบน deployment server แล้วส่งไฟล์ให้ Claude / GPT วิเคราะห์
+รันบน VPS แล้วส่งไฟล์ให้ Claude / GPT วิเคราะห์
 
 Usage:
   python3 export_log.py
@@ -214,6 +214,8 @@ for s in signal_log:
 
         "verdict": s.get("verdict"),
         "conf": s.get("conf"),
+        "main_score_note": s.get("main_score_note"),
+        "reason": s.get("reason"),
         "entry": s.get("entry"),
         "ssl": s.get("ssl"),
         "hsl": s.get("hsl"),
@@ -233,6 +235,7 @@ for s in signal_log:
 
         # SET1v4 fields — BUG FIX: เพิ่ม gate/conf fields ที่ขาดหายไป
         "pre_conf":      s.get("pre_conf"),
+        "ai_conf":       s.get("ai_conf"),
         "gate_path":     s.get("gate_path"),
         "claude_called": s.get("claude_called"),
         "reason_code":   s.get("reason_code"),
@@ -282,6 +285,6 @@ print(f"  📄 {latest_json}")
 print(f"  📊 {latest_csv}" if csv_rows else "  📊 signal_log_latest.csv — no rows")
 print(f"  📄 {latest_rc}")
 
-print("\nวิธี download จาก server:")
+print("\nวิธี download จาก VPS:")
 print(f"  scp USER@YOUR_SERVER:{export_dir}/*latest* ~/Desktop/")
 print("=" * 60)

@@ -773,7 +773,9 @@ def api_analyze():
                 claude_called=False
             )
             logs = load_json(cfg.LOG_FILE)
-            sig["reject_reason"] = low_liq
+            sig["reject_reason"] = bot_module.with_main_score_note(
+                low_liq, sig.get("main_score_note")
+            )
             sig["block_reason_code"] = "LOW_LIQUIDITY_BLOCK"
             sig["pre_conf_before_block"] = pre_conf
             logs.insert(0, sig)
@@ -863,7 +865,10 @@ def api_analyze():
                 claude_called=False
             )
             logs = load_json(cfg.LOG_FILE)
-            sig["reject_reason"] = f"Direction={final_direction}: no valid long/short signal to validate"
+            sig["reject_reason"] = bot_module.with_main_score_note(
+                f"Direction={final_direction}: no valid long/short signal to validate",
+                sig.get("main_score_note"),
+            )
             sig["pre_conf_before_no_direction"] = pre_conf_before_no_direction
             logs.insert(0, sig)
             save_json(cfg.LOG_FILE, logs)
@@ -885,7 +890,10 @@ def api_analyze():
                 claude_called=False
             )
             logs = load_json(cfg.LOG_FILE)
-            sig["reject_reason"] = f"Manual bot gate: pre_conf={pre_conf}% below Claude gate {effective_claude_min}%, filter not passed"
+            sig["reject_reason"] = bot_module.with_main_score_note(
+                f"Manual bot gate: pre_conf={pre_conf}% below Claude gate {effective_claude_min}%, filter not passed",
+                sig.get("main_score_note"),
+            )
             logs.insert(0, sig)
             save_json(cfg.LOG_FILE, logs)
             return jsonify({"ok": True, "signal": sig, "tg_sent": False, "tg_reason": "not sent (NO TRADE)"})
@@ -1032,6 +1040,7 @@ def api_export():
         fields = ["time_thai","symbol","direction","price","entry",
                   "tp1","tp2","tp3","ssl","hsl","verdict","conf",
                   "regime","strategy_used","filter_reason","reject_reason",
+                  "reason","main_score_note","pre_conf","ai_conf","gate_path",
                   "funding_rate"]
         writer = csv_mod.DictWriter(output, fieldnames=fields, extrasaction='ignore')
         writer.writeheader()
