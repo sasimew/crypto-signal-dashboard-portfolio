@@ -88,8 +88,9 @@ def safe_float(v):
 def check(sig, now_price, candles=None):
     """
     ตรวจสอบ outcome:
-      1) ใช้ P/L ณราคาปิดของ window เป็นตัวตัดสิน WIN/LOSS เท่านั้น
-      2) high/low ใน window ใช้เป็น context ว่าเคยแตะ TP/SL หรือไม่ แต่ไม่ override outcome
+      1) ถ้าแตะ Hard SL หรือ Soft SL ใน window ให้ถือเป็น LOSS
+      2) ถ้าไม่แตะ SL ใช้ P/L ของ reference price เป็นตัวตัดสิน WIN/LOSS
+      3) high/low ใน window ใช้เป็น context ว่าเคยแตะ TP/SL หรือไม่
     ถ้าไม่มี entry หรือไม่มีราคาที่ใช้ recheck จะเป็น UNKNOWN
     """
     d = sig.get("direction", "Long")
@@ -110,11 +111,11 @@ def check(sig, now_price, candles=None):
     def set_touch(candidate):
         nonlocal touch
         priority = {
+            "H-SL": 60,
+            "S-SL": 55,
             "TP3": 50,
             "TP2": 40,
             "TP1": 30,
-            "H-SL": 20,
-            "S-SL": 10,
         }
         if not touch or priority.get(candidate, 0) > priority.get(touch, 0):
             touch = candidate
@@ -138,32 +139,38 @@ def check(sig, now_price, candles=None):
                 hit_tp1 = tp1 and c_high >= tp1
                 hit_hsl = hsl and c_low <= hsl
                 hit_ssl = ssl and c_low <= ssl
-                if hit_tp3:
+                if hit_hsl:
+                    set_touch("H-SL")
+                elif hit_ssl:
+                    set_touch("S-SL")
+                elif hit_tp3:
                     set_touch("TP3")
                 elif hit_tp2:
                     set_touch("TP2")
                 elif hit_tp1:
                     set_touch("TP1")
-                elif hit_hsl:
-                    set_touch("H-SL")
-                elif hit_ssl:
-                    set_touch("S-SL")
             elif d == "Short":
                 hit_tp3 = tp3 and c_low <= tp3
                 hit_tp2 = tp2 and c_low <= tp2
                 hit_tp1 = tp1 and c_low <= tp1
                 hit_hsl = hsl and c_high >= hsl
                 hit_ssl = ssl and c_high >= ssl
-                if hit_tp3:
+                if hit_hsl:
+                    set_touch("H-SL")
+                elif hit_ssl:
+                    set_touch("S-SL")
+                elif hit_tp3:
                     set_touch("TP3")
                 elif hit_tp2:
                     set_touch("TP2")
                 elif hit_tp1:
                     set_touch("TP1")
-                elif hit_hsl:
-                    set_touch("H-SL")
-                elif hit_ssl:
-                    set_touch("S-SL")
+
+    if touch in ("H-SL", "S-SL"):
+        stop_price = hsl if touch == "H-SL" else ssl
+        pnl = (stop_price - e) / e * 100 if d == "Long" else (e - stop_price) / e * 100
+        pnl = round(pnl, 2)
+        return "LOSS ❌", pnl, f"SL P/L < 0; Hit {touch}", high, low
 
     pnl = (now_price - e) / e * 100 if d == "Long" else (e - now_price) / e * 100
     pnl = round(pnl, 2)
@@ -194,9 +201,9 @@ def check_day_extreme(sig, fallback_price, candles=None):
     _, _, _, high, low = check(sig, fallback_price, candles)
     ref_price = high if d == "Long" and high else low if d == "Short" and low else fallback_price
     outcome, pnl, level, high, low = check(sig, ref_price, candles)
-    if d == "Long" and high:
+    if d == "Long" and high and level.startswith("P/L"):
         level = level.replace("P/L", "Day High P/L", 1)
-    elif d == "Short" and low:
+    elif d == "Short" and low and level.startswith("P/L"):
         level = level.replace("P/L", "Day Low P/L", 1)
     return outcome, pnl, level, high, low, ref_price
 
