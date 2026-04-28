@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Signal Recheck v4 — SET1v4
+Signal Recheck Set2V1
 - รันทุก 00:00 TH (17:00 UTC via cron)
 - เช็คทุก signal ที่ conf >= 70
-- BUG-07 FIX: ลบ duplicate code block ออก (เดิมมี 2 version ต่อกัน)
-- แก้ให้เก็บ history 7 วัน (RECHECK_LOG limit=500 → 7-day window)
-- ใช้ราคาที่เวลา recheck เพื่อตัดผลจาก P/L sign
+- ใช้ 4h หลัง signal เป็น benchmark หลัก
+- ถ้า hit TP1/TP2/TP3 ระหว่างทาง ให้ถือเป็น WIN แม้ปลาย window กลับมาติดลบ
 """
 import json, os, sys, urllib.request, urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -20,7 +19,9 @@ except ImportError:
 TZ_THAI = timezone(timedelta(hours=7))
 def now_thai(): return datetime.now(TZ_THAI)
 def log(m): print(f"[{now_thai().strftime('%Y-%m-%d %H:%M:%S')} TH] {m}", flush=True)
-BOT_VERSION = getattr(cfg, "BOT_VERSION", "SET1v4")
+BOT_VERSION = getattr(cfg, "BOT_VERSION", "SET2v2")
+RECHECK_VERSION = "Signal Recheck Set2V1"
+MAIN_WINDOW = "4h"
 
 def get_price(sym):
     try:
@@ -356,15 +357,16 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
         candles = get_intraday_klines(sym, max(sig_time_th, day_start), day_end)
         outcome_day, pnl_day, level_day, day_high, day_low = check(sig, now, candles)
         windows = check_windows(sig, candles, now, max(sig_time_th, day_start), day_end)
-        main = windows.get("2h") or {
+        main = windows.get(MAIN_WINDOW) or {
             "outcome": outcome_day, "pnl_pct": pnl_day, "level_hit": level_day,
             "price": now, "high": day_high, "low": day_low,
         }
         outcome = main["outcome"]
         pnl = main["pnl_pct"]
         level = main["level_hit"]
+        main_label = MAIN_WINDOW
         log(f"  {sig.get('id','?')}: {sig.get('direction')} @ {fmt(sig.get('entry'))} "
-            f"→ 2h={fmt(main.get('price'))} | H2={fmt(main.get('high'))} L2={fmt(main.get('low'))} "
+            f"→ {main_label}={fmt(main.get('price'))} | H{main_label}={fmt(main.get('high'))} L{main_label}={fmt(main.get('low'))} "
             f"| Day H={fmt(day_high)} L={fmt(day_low)} | {outcome} {pnl:+.2f}% | hit={level}")
 
         r = {
@@ -384,7 +386,7 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
             "tp2":           sig.get("tp2"),
             "tp3":           sig.get("tp3"),
             "current_price": now,
-            "main_window": "2h",
+            "main_window": MAIN_WINDOW,
             "windows":       windows,
             "day_high_after_signal": day_high,
             "day_low_after_signal":  day_low,
@@ -408,7 +410,7 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
                     "pnl_pct":   pnl,
                     "level_hit": level,
                     "price":     now,
-                    "main_window": "2h",
+                    "main_window": MAIN_WINDOW,
                     "windows":    windows,
                     "day_high_after_signal": day_high,
                     "day_low_after_signal":  day_low,
@@ -435,8 +437,8 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
         avg_loss = round(sum(r["pnl_pct"] for r in losses)/len(losses), 2) if losses else 0
 
         date_s = target_date.strftime("%d %b %Y")
-        msg  = f"📊 *Signal Recheck — {date_s}*\n"
-        msg += f"_(เฉพาะ conf >= 70 | main benchmark: 2h หลัง signal)_\n\n"
+        msg  = f"📊 *{RECHECK_VERSION} — {date_s}*\n"
+        msg += f"_(เฉพาะ conf >= 70 | main benchmark: {MAIN_WINDOW} หลัง signal)_\n\n"
         msg += f"📈 WIN: *{len(wins)}* | 📉 LOSS: *{len(losses)}* | ⚠️ SoftSL: {len(softsl)} | ⏳ Pending: {len(pending)}\n"
         if wr is not None:
             msg += f"🎯 *Win Rate: {wr}%*\n\n"
@@ -468,7 +470,7 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
 
 def main():
     log("=" * 50)
-    log(f"🔍 Signal Recheck v4 — {BOT_VERSION}")
+    log(f"🔍 {RECHECK_VERSION} — {BOT_VERSION}")
 
     logs  = load_json(cfg.LOG_FILE)
     rechk = load_json(cfg.RECHECK_LOG)
