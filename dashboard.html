@@ -2360,26 +2360,51 @@ async function loadRecheck(){
     seen.add(key); return true;
   });
 
-  var tradeRows = deduped.filter(x=>x.evaluation_type !== 'rejected_validation');
-  var rejectRows = deduped.filter(x=>x.evaluation_type === 'rejected_validation');
-  var wins   = tradeRows.filter(x=>x.outcome&&x.outcome.includes('WIN')).length;
-  var losses = tradeRows.filter(x=>x.outcome&&x.outcome.includes('LOSS')).length;
-  var validRejects = rejectRows.filter(x=>x.outcome&&x.outcome.includes('VALID_REJECT')).length;
-  var missedTp = rejectRows.filter(x=>x.outcome&&x.outcome.includes('MISSED_TP')).length;
-  var flat   = deduped.filter(x=>String(x.outcome||'').trim()==='0').length;
-  var unknown= deduped.filter(x=>x.outcome&&x.outcome.includes('UNKNOWN')).length;
+  function displayOutcome(x){
+    var raw = String(x.outcome||'');
+    var would = String(x.would_outcome||'');
+    if(raw.includes('MISSED_TP') || raw.includes('VALID_REJECT') || raw.includes('REJECT_NEUTRAL')){
+      return would || (Number(x.pnl_pct||0)>0 ? 'WIN ✅' : Number(x.pnl_pct||0)<0 ? 'LOSS ❌' : '0');
+    }
+    return raw;
+  }
+
+  function displayLabel(x){
+    if(x.recheck_label) return x.recheck_label;
+    var out = displayOutcome(x);
+    var level = String(x.level_hit||'');
+    if(out.includes('UNKNOWN') || String(out).trim()==='0') return 'WAIT';
+    if(out.includes('LOSS') || out.includes('SOFT SL')) return 'MISS';
+    if(out.includes('WIN')) return (level.includes('Touched TP') || level.includes('TP')) ? 'HIT TP' : 'WIN';
+    return 'WAIT';
+  }
+
+  var wins   = deduped.filter(x=>displayOutcome(x).includes('WIN')).length;
+  var losses = deduped.filter(x=>displayOutcome(x).includes('LOSS')).length;
+  var hitTp  = deduped.filter(x=>displayLabel(x)==='HIT TP').length;
+  var miss   = deduped.filter(x=>displayLabel(x)==='MISS').length;
+  var wait   = deduped.filter(x=>displayLabel(x)==='WAIT').length;
+  var flat   = deduped.filter(x=>String(displayOutcome(x)||'').trim()==='0').length;
+  var unknown= deduped.filter(x=>displayOutcome(x).includes('UNKNOWN')).length;
   var wr     = wins+losses>0?Math.round(wins/(wins+losses)*100):null;
 
   function outcomeCell(x){
-    if(!x.outcome) return '<span class="badge b-notrade">UNKNOWN</span>';
-    if(x.outcome.includes('VALID_REJECT')) return '<span class="badge b-approved">VALID ✅</span>';
-    if(x.outcome.includes('MISSED_TP')) return '<span class="badge b-weak">MISSED TP ⚠️</span>';
-    if(x.outcome.includes('REJECT_NEUTRAL')) return '<span class="badge b-notrade">NEUTRAL</span>';
-    if(x.outcome.includes('WIN'))     return '<span class="badge b-approved">WIN ✅</span>';
-    if(x.outcome.includes('LOSS'))    return '<span class="badge b-rejected">LOSS ❌</span>';
-    if(String(x.outcome).trim()==='0') return '<span class="badge b-notrade">0</span>';
-    if(x.outcome.includes('UNKNOWN')) return '<span class="badge b-notrade">UNKNOWN</span>';
+    var out = displayOutcome(x);
+    if(!out) return '<span class="badge b-notrade">UNKNOWN</span>';
+    if(out.includes('WIN'))     return '<span class="badge b-approved">WIN ✅</span>';
+    if(out.includes('LOSS'))    return '<span class="badge b-rejected">LOSS ❌</span>';
+    if(String(out).trim()==='0') return '<span class="badge b-notrade">WAIT</span>';
+    if(out.includes('UNKNOWN')) return '<span class="badge b-notrade">WAIT</span>';
+    if(out.includes('SOFT')) return '<span class="badge b-rejected">LOSS ❌</span>';
     return '<span class="badge b-notrade">UNKNOWN</span>';
+  }
+
+  function labelCell(x){
+    var label = displayLabel(x);
+    if(label==='HIT TP') return '<span class="badge b-approved">HIT TP ✅</span>';
+    if(label==='MISS') return '<span class="badge b-rejected">MISS ❌</span>';
+    if(label==='WIN') return '<span class="badge b-approved">WIN ✅</span>';
+    return '<span class="badge b-notrade">WAIT</span>';
   }
 
   el.innerHTML = `
@@ -2393,10 +2418,10 @@ async function loadRecheck(){
       <div class="stat"><div class="stat-label">Total</div><div class="stat-value">${deduped.length}</div></div>
     </div>
     ${(flat+unknown)>0?`<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Flat: ${flat} | Unknown: ${unknown}</div>`:''}
-    ${rejectRows.length>0?`<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Rejected validation: Valid ${validRejects} | Missed TP ${missedTp}</div>`:''}
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Labels: Hit TP ${hitTp} | Miss ${miss} | Wait ${wait}</div>
     <div class="tbl-wrap">
     <table>
-      <thead><tr><th>Date</th><th>Signal</th><th>Symbol</th><th>Dir</th><th>Verdict</th><th>Conf</th><th>Entry</th><th>TP1</th><th>Hard SL</th><th>P&amp;L</th><th>Outcome</th></tr></thead>
+      <thead><tr><th>Date</th><th>Signal</th><th>Symbol</th><th>Dir</th><th>Verdict</th><th>Conf</th><th>Entry</th><th>TP1</th><th>Hard SL</th><th>P&amp;L</th><th>Outcome</th><th>Label</th></tr></thead>
       <tbody>
       ${deduped.map(x=>`<tr>
         <td style="font-size:10px;color:var(--muted)">${x.recheck_date||x.signal_time?.slice(0,10)||x.time?.slice(0,10)||'—'}</td>
@@ -2413,6 +2438,7 @@ async function loadRecheck(){
         <td>${x.hsl!=null?fmt(x.hsl):(x.ssl!=null?fmt(x.ssl):'—')}</td>
         <td class="${(x.pnl_pct||0)>=0?'green':'red'}">${x.pnl_pct!=null?fmtPct(x.pnl_pct):'—'}</td>
         <td>${outcomeCell(x)}</td>
+        <td>${labelCell(x)}</td>
       </tr>`).join('')}
       </tbody>
     </table></div>`;

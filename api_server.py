@@ -498,6 +498,7 @@ def api_recheck():
             "outcome": coalesce(rr.get("outcome"), sr.get("outcome")),
             "evaluation_type": coalesce(rr.get("evaluation_type"), sr.get("evaluation_type")),
             "would_outcome": coalesce(rr.get("would_outcome"), sr.get("would_outcome")),
+            "recheck_label": coalesce(rr.get("recheck_label"), sr.get("recheck_label")),
             "pnl_pct": coalesce(rr.get("pnl_pct"), sr.get("pnl_pct")),
             "level_hit": coalesce(rr.get("level_hit"), sr.get("level_hit"), "—"),
             "reason": s.get("reject_reason") or s.get("reason") or s.get("filter_reason"),
@@ -1043,7 +1044,9 @@ def api_export():
                   "tp1","tp2","tp3","ssl","hsl","verdict","conf",
                   "regime","strategy_used","filter_reason","reject_reason",
                   "reason","main_score_note","pre_conf","ai_conf","gate_path",
-                  "funding_rate"]
+                  "funding_rate","recheck_outcome","recheck_pnl_pct",
+                  "recheck_level_hit","recheck_main_window","recheck_label",
+                  "recheck_evaluation_type","recheck_would_outcome"]
         writer = csv_mod.DictWriter(output, fieldnames=fields, extrasaction='ignore')
         writer.writeheader()
         for s in filtered:
@@ -1058,6 +1061,14 @@ def api_export():
             if not row.get("funding_rate"):
                 rb = s.get("decision_log",{}).get("tf_30m_rebound",{})
                 row["funding_rate"] = rb.get("funding_rate","")
+            rc = s.get("recheck") or {}
+            row["recheck_outcome"] = rc.get("outcome", "")
+            row["recheck_pnl_pct"] = rc.get("pnl_pct", "")
+            row["recheck_level_hit"] = rc.get("level_hit", "")
+            row["recheck_main_window"] = rc.get("main_window", "")
+            row["recheck_label"] = rc.get("recheck_label", "")
+            row["recheck_evaluation_type"] = rc.get("evaluation_type", "")
+            row["recheck_would_outcome"] = rc.get("would_outcome", "")
             writer.writerow(row)
         csv_data = output.getvalue().encode("utf-8-sig")
         return Response(

@@ -247,6 +247,10 @@ for s in signal_log:
         "recheck_outcome": rc.get("outcome"),
         "recheck_pnl":     rc.get("pnl_pct"),
         "recheck_level":   rc.get("level_hit"),
+        "recheck_main_window": rc.get("main_window"),
+        "recheck_label": rc.get("recheck_label"),
+        "recheck_evaluation_type": rc.get("evaluation_type"),
+        "recheck_would_outcome": rc.get("would_outcome"),
 
         "ind_set_name": iset.get("name") if isinstance(iset, dict) else iset,
         "ema_config": f"{iset.get('EMA_SHORT')}/{iset.get('EMA_MID')}/{iset.get('EMA_LONG')}" if isinstance(iset, dict) else "",
