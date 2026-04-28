@@ -1646,6 +1646,12 @@ def should_notify(verdict):
     if n == "approved_only": return verdict == "APPROVED"
     return False
 
+def low_liquidity_reason(tf_15m):
+    vol_15m = (tf_15m or {}).get("vol_ratio")
+    if vol_15m is not None and vol_15m < cfg.CTX_VOL_MIN_FOR_SIGNAL:
+        return f"LOW_LIQUIDITY_BLOCK: vol_ratio_15m={vol_15m:.3f} < {cfg.CTX_VOL_MIN_FOR_SIGNAL}"
+    return ""
+
 # ═══════════════════════════════════════════════════════════
 # [2] PRE-FILTER — กัน wasted Claude calls ก่อน Tier 4
 # ═══════════════════════════════════════════════════════════
@@ -1664,9 +1670,9 @@ def should_skip_claude(direction, rb_data, tf_1h, tf_4h, pre_conf, market_ctx=No
 
     # ── [NEW SET2v2] Volume filter ─────────────────────────
     # จากภาพ signal 1: vol_ratio=0.01 → liquidity risk สูงมาก แต่ยังส่ง Claude
-    vol_15m = (tf_15m or {}).get("vol_ratio") if tf_15m else rb_data.get("vol_ratio")
-    if vol_15m is not None and vol_15m < cfg.CTX_VOL_MIN_FOR_SIGNAL:
-        return True, f"VOL_CRITICALLY_LOW: vol_ratio={vol_15m:.3f} < {cfg.CTX_VOL_MIN_FOR_SIGNAL}"
+    low_liq = low_liquidity_reason(tf_15m) if tf_15m else low_liquidity_reason({"vol_ratio": rb_data.get("vol_ratio")})
+    if low_liq:
+        return True, low_liq
 
     # ── [NEW SET2v2] Market context hard block ─────────────
     # ถ้า OI ลงแรง + taker ขัด direction อย่างชัดเจน → momentum ไม่มี
@@ -1940,6 +1946,19 @@ def main():
             skipped += 1
             log(f"  📋 TIER2: pre_conf={pre_conf}% → WEAK SIGNAL")
             logs.insert(0, _base_log("WEAK SIGNAL", "TIER2_WEAK"))
+            time.sleep(1); continue
+
+        low_liq = low_liquidity_reason(m.get("tf_15m"))
+        if low_liq:
+            skipped += 1
+            capped_conf = min(pre_conf, cfg.CLAUDE_MIN_CONF - 1)
+            log(f"  🚫 LOW_LIQUIDITY_BLOCK: pre_conf={pre_conf}% capped={capped_conf}% → NO TRADE | {low_liq}")
+            rec = _base_log("NO TRADE", "LOW_LIQUIDITY_BLOCK")
+            rec["conf"] = capped_conf
+            rec["pre_conf_before_block"] = pre_conf
+            rec["block_reason_code"] = "LOW_LIQUIDITY_BLOCK"
+            rec["reject_reason"] = low_liq
+            logs.insert(0, rec)
             time.sleep(1); continue
 
         # Tier 3: Bot-only (35-54%)

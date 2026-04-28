@@ -760,6 +760,26 @@ def api_analyze():
         # Manual analysis follows the same bot gate before Claude to avoid
         # conflicting manual scores for the same market snapshot.
 
+        low_liq = bot_module.low_liquidity_reason(t15)
+        if low_liq:
+            capped_conf = min(pre_conf, cfg.CLAUDE_MIN_CONF - 1)
+            sig = bot_module.build_signal(
+                symbol, final_direction, m, "NO TRADE", capped_conf, {},
+                low_liq,
+                regime, regime_conf, regime_reasons,
+                strategy, filter_reason, tf_bk, rb_data,
+                gate_path="LOW_LIQUIDITY_BLOCK",
+                pre_conf=pre_conf,
+                claude_called=False
+            )
+            logs = load_json(cfg.LOG_FILE)
+            sig["reject_reason"] = low_liq
+            sig["block_reason_code"] = "LOW_LIQUIDITY_BLOCK"
+            sig["pre_conf_before_block"] = pre_conf
+            logs.insert(0, sig)
+            save_json(cfg.LOG_FILE, logs)
+            return jsonify({"ok": True, "signal": sig, "tg_sent": False, "tg_reason": "not sent (LOW_LIQUIDITY_BLOCK)"})
+
         # ── Tier 5: AUTO APPROVE ──────────────────────────────
         auto_approved = False
         auto_approve_reason = ""

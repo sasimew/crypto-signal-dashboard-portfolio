@@ -2044,6 +2044,8 @@ function renderAIResult(sig, targetId){
 
   var isLong = sig.direction === 'Long';
   var conf = sig.conf || 0;
+  var botConf = sig.pre_conf != null ? sig.pre_conf : conf;
+  var aiConf = sig.ai_conf != null ? sig.ai_conf : (sig.claude_called ? conf : null);
   var regime = sig.regime || '—';
   var strategy = sig.strategy_used || '—';
   var ind = sig.indicators || {};
@@ -2080,7 +2082,9 @@ function renderAIResult(sig, targetId){
     { label: 'Structure', value: trendAlignment, cls: trendAlignment === 'Aligned' ? 'confidence-good' : trendAlignment === 'Warning' ? 'confidence-bad' : 'confidence-warn' },
     { label: 'Momentum', value: momentumStrength, cls: momentumStrength === 'Strong' ? 'confidence-good' : momentumStrength === 'Moderate' ? 'confidence-warn' : 'confidence-bad' },
     { label: 'Volume', value: t15.vol_ratio ? `${t15.vol_ratio.toFixed(1)}x avg` : 'Neutral', cls: t15.vol_ratio >= 1.2 ? 'confidence-good' : t15.vol_ratio >= 0.8 ? 'confidence-warn' : 'confidence-bad' },
-    { label: 'AI confirmation', value: sig.claude_called ? aiVerdict : 'Bot Auto', cls: sig.claude_called ? (isTradeable ? 'confidence-good' : 'confidence-bad') : 'confidence-good' },
+    { label: 'Main score', value: `${conf}/100`, cls: conf >= 70 ? 'confidence-good' : conf >= 50 ? 'confidence-warn' : 'confidence-bad' },
+    { label: 'Bot pre-score', value: `${botConf}/100`, cls: botConf >= 70 ? 'confidence-good' : botConf >= 50 ? 'confidence-warn' : 'confidence-bad' },
+    { label: 'AI confirmation', value: aiConf != null ? `${aiVerdict} (${aiConf}/100)` : 'Not called', cls: aiConf != null ? (isTradeable ? 'confidence-good' : 'confidence-bad') : 'confidence-warn' },
     { label: 'Side score', value: scoreBreakdown, cls: 'confidence-warn' },
   ];
 
@@ -2093,8 +2097,11 @@ function renderAIResult(sig, targetId){
             <div class="muted" style="margin-top:8px;font-size:11px">${sig.symbol || '—'} · ${strategy} · ${regime}</div>
           </div>
           <div class="signal-score">
-            <div class="score-label">Confidence</div>
+            <div class="score-label">Main Conf</div>
             <div class="score-value" style="color:${scoreColor}">${conf}</div>
+            <div class="muted" style="font-size:10px;text-align:right;margin-top:2px">
+              Bot ${botConf}%${aiConf != null ? ` · AI ${aiConf}%` : ''}
+            </div>
           </div>
         </div>
         <div class="signal-meta-grid">
@@ -2232,8 +2239,11 @@ async function loadLog(){
 
     // Conf cell — colour coded + show bot/claude pass clearly
     var confVal = s.conf!=null?s.conf:0;
+    var botConfVal = s.pre_conf!=null ? s.pre_conf : confVal;
+    var aiConfVal = s.ai_conf!=null ? s.ai_conf : (s.claude_called ? confVal : null);
     var confClr = confVal>=70?'var(--green)':confVal>=50?'var(--yellow)':'var(--red)';
-    var confCell = `<span style="font-family:var(--mono);font-weight:700;color:${confClr}">${confVal}</span>`;
+    var confCell = `<span class="muted" style="font-size:8px">Main</span><br><span style="font-family:var(--mono);font-weight:700;color:${confClr}">${confVal}</span>`;
+    var confSub = `Bot ${botConfVal}%${aiConfVal!=null ? `<br>AI ${aiConfVal}%` : ''}`;
 
     // BUG-12 FIX: Reason column — compact badge, click to see full
     var reasonText = s.reject_reason || s.reason || '';
@@ -2251,7 +2261,7 @@ async function loadLog(){
       <td class="lv-green" style="font-family:var(--mono);font-size:11px">${logTp1 ? fmt(logTp1) : '<span class="muted">—</span>'}</td>
       <td class="lv-red" style="font-family:var(--mono);font-size:11px">${logHsl ? fmt(logHsl) : '<span class="muted">—</span>'}</td>
       <td>${verdictBadge(s.verdict)}</td>
-      <td style="text-align:center">${confCell}<br><span class="muted" style="font-size:9px">${preConfStr}</span></td>
+      <td style="text-align:center">${confCell}<br><span class="muted" style="font-size:9px">${confSub}</span></td>
       <td style="font-size:10px;font-family:var(--mono)" title="${gateStr}">${gateShort}</td>
       <td style="max-width:100px">${reasonCell}</td>
     </tr>`;
