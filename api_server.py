@@ -982,6 +982,7 @@ def api_analyze():
         return jsonify({"ok": False, "error": str(e)}), 400
     except Exception as e:
         error_type, error_desc = bot_module.classify_runtime_error(e)
+        print(f"[api_analyze] {symbol} {direction} failed: {error_type} — {error_desc}", flush=True)
         return jsonify({
             "ok": False,
             "error": str(e),

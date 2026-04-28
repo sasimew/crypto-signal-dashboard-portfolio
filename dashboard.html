@@ -2018,10 +2018,13 @@ async function quickAnalyze(symbol, direction){
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({symbol, direction})
     });
+    var data = null;
+    try{ data = await r.json(); }catch(_){}
     if(!r.ok){
-      throw new Error(`Analyze request failed (${r.status})`);
+      var detail = data && (data.error_desc || data.error || data.hint || data.error_type);
+      var type = data && data.error_type ? ` [${data.error_type}]` : '';
+      throw new Error(`Analyze request failed (${r.status})${type}${detail ? ': ' + detail : ''}`);
     }
-    var data = await r.json();
     if(!data.ok) throw new Error((data.error||'Analysis failed') + (data.hint ? '\n'+data.hint : ''));
 
     var sig = data.signal;
