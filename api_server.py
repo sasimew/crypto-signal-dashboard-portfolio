@@ -760,7 +760,7 @@ def api_analyze():
         # Manual analysis follows the same bot gate before Claude to avoid
         # conflicting manual scores for the same market snapshot.
 
-        low_liq = bot_module.low_liquidity_reason(t15)
+        low_liq = bot_module.low_liquidity_block_reason(t15, pre_conf, passed=passed)
         if low_liq:
             capped_conf = min(pre_conf, cfg.CLAUDE_MIN_CONF - 1)
             sig = bot_module.build_signal(
@@ -768,7 +768,7 @@ def api_analyze():
                 low_liq,
                 regime, regime_conf, regime_reasons,
                 strategy, filter_reason, tf_bk, rb_data,
-                gate_path="LOW_LIQUIDITY_BLOCK",
+                gate_path="TIER3_LOW_LIQUIDITY_BLOCK",
                 pre_conf=pre_conf,
                 claude_called=False
             )

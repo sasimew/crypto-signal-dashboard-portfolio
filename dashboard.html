@@ -1093,6 +1093,16 @@ function verdictBadge(v){
   };
   return `<span class="badge ${map[v]||'b-notrade'}">${v||'—'}</span>`;
 }
+function gateTierLabel(gate){
+  gate = gate || '';
+  if(gate.startsWith('TIER1')) return 'T1';
+  if(gate.startsWith('TIER2')) return 'T2';
+  if(gate.startsWith('TIER3') || gate.startsWith('SET2_PREFILTER') || gate.includes('LOW_LIQUIDITY')) return 'T3';
+  if(gate.startsWith('TIER4') || gate.startsWith('MANUAL_CLAUDE')) return 'T4';
+  if(gate.startsWith('TIER5')) return 'T5';
+  if(gate.startsWith('MANUAL')) return 'T3';
+  return '—';
+}
 
 // ── CLOCK ────────────────────────────────────────────────────
 setInterval(()=>{ $('clock').textContent=new Date().toTimeString().slice(0,8); },1000);
@@ -2234,7 +2244,7 @@ async function loadLog(){
 
     // Gate display compact
     var gateStr = s.gate_path || '—';
-    var gateShort = gateStr.replace('TIER','T').replace('_APPROVED','✅').replace('_AUTO','⚡').replace('_CLAUDE','🤖').replace('_BOT_REJECT','🚫').replace('_WEAK','📋').replace('_FILTERED','🗑');
+    var gateShort = gateTierLabel(gateStr);
     var preConfStr = s.pre_conf!=null ? `${s.pre_conf}%` : '—';
 
     // Conf cell — colour coded + show bot/claude pass clearly

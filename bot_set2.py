@@ -1652,6 +1652,21 @@ def low_liquidity_reason(tf_15m):
         return f"LOW_LIQUIDITY_BLOCK: vol_ratio_15m={vol_15m:.3f} < {cfg.CTX_VOL_MIN_FOR_SIGNAL}"
     return ""
 
+def bot_gate_reason(pre_conf, passed=None, claude_gate=None):
+    gate = claude_gate or cfg.CLAUDE_MIN_CONF
+    if pre_conf < gate:
+        filter_text = ""
+        if passed is not None:
+            filter_text = ", filter passed" if passed else ", filter not passed"
+        return f"Bot: pre_conf={pre_conf}% below Claude gate {gate}%{filter_text}"
+    return f"Bot: pre_conf={pre_conf}% blocked before Claude validation"
+
+def low_liquidity_block_reason(tf_15m, pre_conf, passed=None, claude_gate=None):
+    reason = low_liquidity_reason(tf_15m)
+    if not reason:
+        return ""
+    return f"{reason} | {bot_gate_reason(pre_conf, passed=passed, claude_gate=claude_gate)}"
+
 # ═══════════════════════════════════════════════════════════
 # [2] PRE-FILTER — กัน wasted Claude calls ก่อน Tier 4
 # ═══════════════════════════════════════════════════════════
@@ -1670,7 +1685,10 @@ def should_skip_claude(direction, rb_data, tf_1h, tf_4h, pre_conf, market_ctx=No
 
     # ── [NEW SET2v2] Volume filter ─────────────────────────
     # จากภาพ signal 1: vol_ratio=0.01 → liquidity risk สูงมาก แต่ยังส่ง Claude
-    low_liq = low_liquidity_reason(tf_15m) if tf_15m else low_liquidity_reason({"vol_ratio": rb_data.get("vol_ratio")})
+    low_liq = low_liquidity_block_reason(
+        tf_15m if tf_15m else {"vol_ratio": rb_data.get("vol_ratio")},
+        pre_conf,
+    )
     if low_liq:
         return True, low_liq
 
@@ -1948,12 +1966,12 @@ def main():
             logs.insert(0, _base_log("WEAK SIGNAL", "TIER2_WEAK"))
             time.sleep(1); continue
 
-        low_liq = low_liquidity_reason(m.get("tf_15m"))
+        low_liq = low_liquidity_block_reason(m.get("tf_15m"), pre_conf, passed=passed)
         if low_liq:
             skipped += 1
             capped_conf = min(pre_conf, cfg.CLAUDE_MIN_CONF - 1)
             log(f"  🚫 LOW_LIQUIDITY_BLOCK: pre_conf={pre_conf}% capped={capped_conf}% → NO TRADE | {low_liq}")
-            rec = _base_log("NO TRADE", "LOW_LIQUIDITY_BLOCK")
+            rec = _base_log("NO TRADE", "TIER3_LOW_LIQUIDITY_BLOCK")
             rec["conf"] = capped_conf
             rec["pre_conf_before_block"] = pre_conf
             rec["block_reason_code"] = "LOW_LIQUIDITY_BLOCK"
