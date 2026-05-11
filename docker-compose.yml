@@ -11,22 +11,27 @@ services:
     env_file:
       - .env
     ports:
-      - "5000:5000"
+      - "3000:3000"
     volumes:
       - ./data:/app/data
+      - /root/secrets/google-service-account.json:/app/google-service-account.json:ro
       - ./dashboard.html:/app/dashboard.html:ro
       - ./api_server.py:/app/api_server.py:ro
       - ./bot.py:/app/bot.py:ro
       - ./config.py:/app/config.py:ro
       - ./bot_set2.py:/app/bot_set2.py:ro
+      - ./bot_set3.py:/app/bot_set3.py:ro
       - ./config_set2.py:/app/config_set2.py:ro
       - ./recheck.py:/app/recheck.py:ro
       - ./export_log.py:/app/export_log.py:ro
       - ./clean_signal_errors.py:/app/clean_signal_errors.py:ro
     environment:
       - DATA_DIR=/app/data
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/google-service-account.json
+      - CRYPTO_BOT_MODULE=${CRYPTO_BOT_MODULE:-bot_set3}
+      - CRYPTO_CONFIG_MODULE=${CRYPTO_CONFIG_MODULE:-config_set2}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:$${PORT:-3000}/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -36,19 +41,22 @@ services:
     build: .
     container_name: crypto-signal-bot
     restart: always
-    env_file:
-      - .env
     volumes:
       - ./data:/app/data
       - ./bot.py:/app/bot.py:ro
       - ./config.py:/app/config.py:ro
       - ./bot_set2.py:/app/bot_set2.py:ro
+      - ./bot_set3.py:/app/bot_set3.py:ro
       - ./config_set2.py:/app/config_set2.py:ro
       - ./recheck.py:/app/recheck.py:ro
       - ./export_log.py:/app/export_log.py:ro
       - ./clean_signal_errors.py:/app/clean_signal_errors.py:ro
     environment:
       - DATA_DIR=/app/data
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - BOT_SCRIPT=${BOT_SCRIPT:-/app/bot_set3.py}
     command: >
       sh -c "
         echo 'SHELL=/bin/sh' > /etc/cron.d/cryptobot &&
@@ -59,7 +67,7 @@ services:
         echo \"TG_BOT_TOKEN=$$TELEGRAM_TOKEN\" >> /etc/cron.d/cryptobot &&
         echo \"TG_CHAT_ID=$$TELEGRAM_CHAT_ID\" >> /etc/cron.d/cryptobot &&
         echo \"DATA_DIR=$$DATA_DIR\" >> /etc/cron.d/cryptobot &&
-        echo '*/5 * * * * root python3 /app/bot_set2.py >> /app/data/bot.log 2>&1' >> /etc/cron.d/cryptobot &&
+        echo '*/5 * * * * root python3 $${BOT_SCRIPT} >> /app/data/bot.log 2>&1' >> /etc/cron.d/cryptobot &&
         echo '0 17 * * * root python3 /app/recheck.py >> /app/data/recheck.log 2>&1' >> /etc/cron.d/cryptobot &&
         echo '' >> /etc/cron.d/cryptobot &&
         chmod 0644 /etc/cron.d/cryptobot &&
@@ -79,7 +87,7 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./.htpasswd:/etc/nginx/.htpasswd:ro
-      - ./home.html:/usr/share/nginx/html/index.html:ro
+      - ./home:/usr/share/nginx/html:ro
       - ./data/certbot/conf:/etc/letsencrypt:ro
       - ./data/certbot/www:/var/www/certbot:ro
     depends_on:

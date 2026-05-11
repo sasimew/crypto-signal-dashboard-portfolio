@@ -5,32 +5,43 @@ Crypto Signal — Flask API Server v3
 - /api/binance endpoint สำหรับ dashboard Binance tab
 - Bug fix: tf_15m error handling
 """
-import json, os, sys, time, traceback, urllib.request, urllib.parse
+import base64, json, os, re, sys, time, traceback, urllib.request, urllib.parse
+import importlib
 from datetime import datetime, timezone, timedelta
 
 TZ_THAI = timezone(timedelta(hours=7))
 def now_thai(): return datetime.now(TZ_THAI)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-try:
-    import config_set2 as cfg
-except ImportError:
-    import config as cfg
+
+def _load_first_module(env_var, default_names):
+    raw_names = os.getenv(env_var, "")
+    names = [name.strip() for name in raw_names.split(",") if name.strip()] if raw_names else list(default_names)
+    last_exc = None
+    for name in names:
+        try:
+            return importlib.import_module(name), name
+        except ImportError as exc:
+            last_exc = exc
+    if last_exc:
+        raise last_exc
+    raise ImportError(f"No module candidates configured for {env_var}")
+
+cfg, CFG_MODULE_NAME = _load_first_module("CRYPTO_CONFIG_MODULE", ("config_set2", "config"))
 
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 
-try:
-    import bot_set2 as bot_module
-except ImportError:
-    import bot as bot_module
+bot_module, BOT_MODULE_NAME = _load_first_module("CRYPTO_BOT_MODULE", ("bot_set3", "bot_set2", "bot"))
 
 app = Flask(__name__, static_folder=cfg.BASE_DIR)
 CORS(app)
+APP_PORT = int(os.getenv("PORT", getattr(cfg, "FLASK_PORT", 3000)))
 
 # ─── BINANCE FUTURES CACHE ────────────────────────────────────
 # cache เก็บ {symbol: {data, fetched_at, ttl}}
 _bnf_cache = {}
+_news_cache = None
 
 BNF_BASE = "https://fapi.binance.com/fapi/v1"
 BNF_BASE2 = "https://fapi.binance.com/futures/data"
@@ -42,6 +53,71 @@ CACHE_TTL = {
     "taker_vol":  60,  # 1 min
     "prices":      5,  # 5 sec
 }
+NEWS_CACHE_TTL = 2 * 60 * 60
+NEWS_QUERY = '("business technology" OR AI OR OpenAI OR Anthropic OR Claude OR ChatGPT OR bitcoin OR blockchain OR crypto)'
+NEWS_API_URL = "https://newsapi.org/v2/everything"
+NEWS_FETCH_PAGE_SIZE = 40
+NEWS_RETURN_LIMIT = 15
+NEWS_STORE_FILE = os.path.join(os.path.dirname(getattr(cfg, "LOG_FILE", os.path.join(os.getcwd(), "data", "bot.log"))), "news_feed_cache.json")
+PREMIUM_NEWS_DOMAINS = (
+    "reuters.com",
+    "apnews.com",
+    "bloomberg.com",
+    "wsj.com",
+    "ft.com",
+    "cnbc.com",
+    "fortune.com",
+    "forbes.com",
+    "axios.com",
+    "techcrunch.com",
+    "theverge.com",
+    "wired.com",
+    "venturebeat.com",
+    "technologyreview.com",
+    "semafor.com",
+    "theinformation.com",
+    "coindesk.com",
+    "cointelegraph.com",
+    "cryptobriefing.com",
+    "blockworks.co",
+    "digiday.com",
+    "digitimes.com",
+    "deeplearning.ai",
+)
+PREMIUM_SOURCE_NAMES = {
+    "Reuters",
+    "Associated Press",
+    "AP News",
+    "Bloomberg",
+    "The Wall Street Journal",
+    "Financial Times",
+    "CNBC",
+    "Fortune",
+    "Forbes",
+    "Axios",
+    "TechCrunch",
+    "The Verge",
+    "Wired",
+    "VentureBeat",
+    "MIT Technology Review",
+    "Semafor",
+    "The Information",
+    "CoinDesk",
+    "Cointelegraph",
+    "Crypto Briefing",
+    "Blockworks",
+    "Digiday",
+    "DIGITIMES",
+    "DeepLearning.AI",
+}
+NEWS_BLOCKLIST_KEYWORDS = (
+    "sponsored",
+    "pypi.org",
+    "python sdk",
+    "workspace runtime",
+    "official python sdk",
+    "project/",
+)
 
 def bn_get(url, timeout=10):
     """GET Binance API — ไม่ต้องใส่ header"""
@@ -64,6 +140,134 @@ def cache_get(key):
 
 def cache_set(key, data, ttl):
     _bnf_cache[key] = {"data": data, "fetched_at": time.time(), "ttl": ttl}
+
+def get_news_cache():
+    global _news_cache
+    if not _news_cache:
+        try:
+            if os.path.exists(NEWS_STORE_FILE):
+                with open(NEWS_STORE_FILE) as f:
+                    _news_cache = json.load(f)
+        except Exception:
+            _news_cache = None
+    if not _news_cache:
+        return None
+    age = time.time() - _news_cache["fetched_at"]
+    return {
+        "payload": _news_cache["payload"],
+        "fresh": age < NEWS_CACHE_TTL,
+    }
+
+def set_news_cache(payload):
+    global _news_cache
+    _news_cache = {
+        "payload": payload,
+        "fetched_at": time.time(),
+    }
+    try:
+        os.makedirs(os.path.dirname(NEWS_STORE_FILE), exist_ok=True)
+        with open(NEWS_STORE_FILE, "w") as f:
+            json.dump(_news_cache, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"Save news cache error: {e}")
+
+def _news_article_key(article):
+    source_name = str((article.get("source") or {}).get("name") or "").strip().lower()
+    title = str(article.get("title") or "").strip().lower()
+    url = str(article.get("url") or "").strip().lower()
+    return url or f"{source_name}|{title}"
+
+def _news_article_ts(article):
+    raw = article.get("publishedAt")
+    if not raw:
+        return 0.0
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return 0.0
+
+def merge_news_articles(existing_articles, new_articles, limit=NEWS_RETURN_LIMIT):
+    merged = []
+    seen = set()
+    for article in list(new_articles or []) + list(existing_articles or []):
+        key = _news_article_key(article)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(article)
+    merged.sort(key=_news_article_ts, reverse=True)
+    return merged[:limit]
+
+def build_news_payload(articles, updated_at=None):
+    trimmed = list(articles or [])[:NEWS_RETURN_LIMIT]
+    return {
+        "status": "ok",
+        "totalResults": len(trimmed),
+        "articles": trimmed,
+        "cached": False,
+        "updatedAt": updated_at or datetime.now(timezone.utc).isoformat(),
+    }
+
+def fetch_newsapi_articles():
+    api_key = os.getenv("NEWS_API_KEY", "").strip()
+    if not api_key:
+        return None, ("NEWS_API_KEY is not configured", 500)
+
+    query = urllib.parse.urlencode({
+        "q": NEWS_QUERY,
+        "language": "en",
+        "sortBy": "publishedAt",
+        "pageSize": NEWS_FETCH_PAGE_SIZE,
+    })
+    req = urllib.request.Request(
+        f"{NEWS_API_URL}?{query}",
+        headers={"X-Api-Key": api_key, "Accept": "application/json"},
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            data = json.loads(response.read().decode())
+    except Exception:
+        return None, ("Unable to load news", 502)
+
+    if data.get("status") != "ok":
+        return None, ("Unable to load news", 502)
+
+    def is_premium_article(article):
+        title = str(article.get("title") or "").strip()
+        description = str(article.get("description") or "").strip()
+        source_name = str((article.get("source") or {}).get("name") or "").strip()
+        url = str(article.get("url") or "").strip().lower()
+        combined = f"{title} {description} {source_name} {url}".lower()
+
+        if not title or not source_name or not url:
+            return False
+        if "[removed]" in combined:
+            return False
+        if any(keyword in combined for keyword in NEWS_BLOCKLIST_KEYWORDS):
+            return False
+
+        hostname = ""
+        try:
+            hostname = urllib.parse.urlparse(url).netloc.lower()
+            if hostname.startswith("www."):
+                hostname = hostname[4:]
+        except Exception:
+            hostname = ""
+
+        source_ok = source_name in PREMIUM_SOURCE_NAMES
+        domain_ok = any(
+            hostname == domain or hostname.endswith("." + domain)
+            for domain in PREMIUM_NEWS_DOMAINS
+        )
+        return source_ok or domain_ok
+
+    filtered_articles = [
+        article for article in (data.get("articles") or [])
+        if is_premium_article(article)
+    ][:NEWS_RETURN_LIMIT]
+
+    return build_news_payload(filtered_articles), None
 
 def fetch_binance_futures(symbol="BTCUSDT"):
     """
@@ -244,6 +448,9 @@ def get_display_signal_logs(include_audit=False):
 def send_telegram_msg(msg):
     token   = cfg.TELEGRAM_TOKEN
     chat_id = cfg.TELEGRAM_CHAT_ID
+    return send_telegram_message(token, chat_id, msg)
+
+def send_telegram_message(token, chat_id, msg):
     if not token or "YOUR" in token: return False
     params = urllib.parse.urlencode({
         "chat_id": chat_id, "text": msg, "parse_mode": "Markdown"
@@ -256,6 +463,100 @@ def send_telegram_msg(msg):
         ) as r:
             return json.loads(r.read().decode()).get("ok", False)
     except: return False
+
+def send_contact_telegram_msg(msg):
+    token = os.getenv("TELEGRAM_TOKEN2", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT2_ID", "").strip()
+    if not token or not chat_id:
+        raise RuntimeError("Contact Telegram bot is not configured")
+    ok = send_telegram_message(token, chat_id, msg)
+    if not ok:
+        raise RuntimeError("Unable to deliver Telegram notification")
+    return True
+
+def _clean_contact_value(value, max_len=1000):
+    text = str(value or "").strip()
+    text = re.sub(r"\s+", " ", text)
+    return text[:max_len]
+
+def _contact_phone_display(country_code, tel):
+    parts = [p for p in (_clean_contact_value(country_code, 32), _clean_contact_value(tel, 64)) if p]
+    return " ".join(parts)
+
+def _phone_digits(value):
+    return re.sub(r"\D", "", str(value or ""))
+
+def _parse_sheet_id(raw_value):
+    value = (raw_value or "").strip()
+    if not value:
+        return ""
+    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", value)
+    return match.group(1) if match else value
+
+def _load_service_account_info():
+    encoded = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_B64", "").strip()
+    inline_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    file_path = (
+        os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "").strip()
+        or os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+    )
+
+    if encoded:
+        return json.loads(base64.b64decode(encoded).decode("utf-8"))
+    if inline_json:
+        return json.loads(inline_json)
+    if file_path:
+        with open(file_path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    raise RuntimeError("Google service account is not configured")
+
+def append_contact_to_google_sheet(row_values):
+    spreadsheet_id = _parse_sheet_id(
+        os.getenv("CONTACT_SHEET_ID")
+        or os.getenv("GOOGLE_CONTACT_SHEET_ID")
+        or os.getenv("GOOGLE_SHEET_ID")
+    )
+    if not spreadsheet_id:
+        raise RuntimeError("Contact sheet ID is not configured")
+
+    worksheet_name = (os.getenv("CONTACT_SHEET_TAB") or "Contact Leads").strip()
+    worksheet_range_name = worksheet_name.replace("'", "''")
+    service_account_info = _load_service_account_info()
+
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+
+    credentials = service_account.Credentials.from_service_account_info(
+        service_account_info,
+        scopes=["https://www.googleapis.com/auth/spreadsheets"],
+    )
+    service = build("sheets", "v4", credentials=credentials, cache_discovery=False)
+    body = {"values": [row_values]}
+    service.spreadsheets().values().append(
+        spreadsheetId=spreadsheet_id,
+        range=f"'{worksheet_range_name}'!A:Z",
+        valueInputOption="USER_ENTERED",
+        insertDataOption="INSERT_ROWS",
+        body=body,
+    ).execute()
+
+def build_contact_telegram_message(payload):
+    priority = payload.get("priority") or "-"
+    phone = payload.get("phoneDisplay") or "-"
+    brief = payload.get("brief") or "-"
+    lines = [
+        "*New Contact Form Submission*",
+        f"*Name:* {payload.get('name')}",
+        f"*Email:* {payload.get('email')}",
+        f"*Phone:* {phone}",
+        f"*Working On:* {priority}",
+        f"*Page:* {payload.get('sourcePage') or '-'}",
+        f"*Submitted:* {payload.get('submittedAtThai')}",
+        "",
+        "*Brief:*",
+        brief,
+    ]
+    return "\n".join(lines)
 
 # ─── ROUTES ───────────────────────────────────────────────
 @app.route("/")
@@ -291,6 +592,8 @@ def health():
         "status": "ok",
         "time": now_thai().strftime('%Y-%m-%d %H:%M:%S TH'),
         "version": getattr(cfg, "BOT_VERSION", "unknown"),
+        "bot_module": BOT_MODULE_NAME,
+        "config_module": CFG_MODULE_NAME,
         "cron_running": cron_running,
         "cron_last_seen": cron_last_seen,
     })
@@ -337,6 +640,142 @@ def api_binance():
         return jsonify({"ok": True, "data": data})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/news")
+def api_news():
+    cached = get_news_cache()
+    if cached and cached["fresh"]:
+        payload = dict(cached["payload"])
+        payload["cached"] = True
+        payload["stale"] = False
+        return jsonify(payload)
+
+    payload, error = fetch_newsapi_articles()
+    if payload:
+        existing_articles = []
+        if cached and cached.get("payload"):
+            existing_articles = cached["payload"].get("articles") or []
+        merged_articles = merge_news_articles(existing_articles, payload.get("articles") or [])
+        merged_payload = build_news_payload(merged_articles)
+        set_news_cache(merged_payload)
+        merged_payload["cached"] = False
+        merged_payload["stale"] = False
+        return jsonify(merged_payload)
+
+    if cached:
+        stale_payload = dict(cached["payload"])
+        stale_payload["cached"] = True
+        stale_payload["stale"] = True
+        return jsonify(stale_payload)
+
+    message, status_code = error
+    return jsonify({"status": "error", "message": message}), status_code
+
+@app.route("/api/contact", methods=["POST", "OPTIONS"])
+def api_contact():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
+    payload = request.get_json(silent=True) or {}
+    name = _clean_contact_value(payload.get("name"), 160)
+    email = _clean_contact_value(payload.get("email"), 200)
+    priority = _clean_contact_value(payload.get("priority"), 240)
+    brief = _clean_contact_value(payload.get("brief"), 3000)
+    country_code = _clean_contact_value(payload.get("countryCode"), 32)
+    tel = _clean_contact_value(payload.get("tel"), 64)
+    ga_client_id = _clean_contact_value(payload.get("gaClientId"), 120)
+    source_page = _clean_contact_value(payload.get("sourcePage"), 500)
+    user_agent = _clean_contact_value(request.headers.get("User-Agent"), 500)
+    ip_address = _clean_contact_value(
+        request.headers.get("X-Forwarded-For") or request.remote_addr, 120
+    )
+
+    if not name or not email or not brief:
+        return jsonify({"status": "error", "message": "Please complete the required fields."}), 400
+
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return jsonify({"status": "error", "message": "Please enter a valid email address."}), 400
+
+    if not priority:
+        return jsonify({"status": "error", "message": "Please tell me what you're working on."}), 400
+
+    phone_digits = _phone_digits(tel)
+    if phone_digits and (len(phone_digits) < 7 or len(phone_digits) > 15):
+        return jsonify({"status": "error", "message": "Telephone must be between 7 and 15 digits."}), 400
+
+    phone_display = _contact_phone_display(country_code, tel)
+    submitted_at = now_thai()
+    submitted_at_iso = submitted_at.isoformat()
+    submitted_at_th = submitted_at.strftime("%Y-%m-%d %H:%M:%S TH")
+
+    row_values = [
+        submitted_at_iso,
+        submitted_at_th,
+        name,
+        email,
+        country_code,
+        phone_digits,
+        phone_display,
+        priority,
+        brief,
+        source_page,
+        ga_client_id,
+        ip_address,
+        user_agent,
+    ]
+
+    sheet_saved = False
+    telegram_sent = False
+    try:
+        append_contact_to_google_sheet(row_values)
+        sheet_saved = True
+    except Exception as exc:
+        print(f"[CONTACT] sheet append error: {exc}")
+
+    try:
+        telegram_payload = {
+            "name": name,
+            "email": email,
+            "priority": priority,
+            "brief": brief,
+            "phoneDisplay": phone_display,
+            "sourcePage": source_page,
+            "submittedAtThai": submitted_at_th,
+        }
+        telegram_sent = send_contact_telegram_msg(build_contact_telegram_message(telegram_payload))
+    except Exception as exc:
+        print(f"[CONTACT] telegram notify error: {exc}")
+
+    if not sheet_saved and not telegram_sent:
+        return jsonify({
+            "status": "error",
+            "message": "Unable to submit right now. Google Sheet and Telegram are not available.",
+        }), 500
+
+    if not sheet_saved:
+        return jsonify({
+            "status": "error",
+            "message": "Inquiry sent to Telegram, but Google Sheet could not be updated.",
+            "telegramSent": telegram_sent,
+            "sheetSaved": sheet_saved,
+            "submittedAt": submitted_at_iso,
+        }), 502
+
+    if not telegram_sent:
+        return jsonify({
+            "status": "error",
+            "message": "Inquiry saved to Google Sheet, but Telegram notification could not be delivered.",
+            "telegramSent": telegram_sent,
+            "sheetSaved": sheet_saved,
+            "submittedAt": submitted_at_iso,
+        }), 502
+
+    return jsonify({
+        "status": "ok",
+        "telegramSent": telegram_sent,
+        "sheetSaved": sheet_saved,
+        "submittedAt": submitted_at_iso,
+    })
 
 @app.route("/api/signals")
 def api_signals():
@@ -1369,6 +1808,6 @@ def build_tg_rebound_alert_simple(symbol, direction, price, rb_data, reasons):
 
 # ─── STARTUP ──────────────────────────────────────────────
 if __name__ == "__main__":
-    print(f"🚀 API server v4: {cfg.FLASK_HOST}:{cfg.FLASK_PORT}")
+    print(f"🚀 API server v4: {cfg.FLASK_HOST}:{APP_PORT}")
     print(f"📊 Dashboard: http://sasi.asia/dashboard")
-    app.run(host=cfg.FLASK_HOST, port=cfg.FLASK_PORT, debug=False)
+    app.run(host=cfg.FLASK_HOST, port=APP_PORT, debug=False)

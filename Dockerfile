@@ -11,7 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ติดตั้ง Python packages
-RUN pip install --no-cache-dir flask flask-cors gunicorn
+RUN pip install --no-cache-dir \
+    flask flask-cors gunicorn \
+    google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
 # Copy source code
 COPY config.py bot.py config_set2.py bot_set2.py api_server.py recheck.py dashboard.html ./
@@ -22,6 +24,6 @@ RUN mkdir -p /app/data
 # Default env
 ENV DATA_DIR=/app/data
 
-EXPOSE 5000
+EXPOSE 3000
 
-CMD ["gunicorn", "--workers", "2", "--bind", "0.0.0.0:5000", "--timeout", "60", "--access-logfile", "-", "api_server:app"]
+CMD ["sh", "-c", "gunicorn --workers 2 --bind 0.0.0.0:${PORT:-3000} --timeout 60 --access-logfile - api_server:app"]
