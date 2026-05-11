@@ -2,6 +2,21 @@
 
 Use this checklist every time code, dashboard files, bot logic, docs, deployment files, or release notes are updated. The default rule is: if the update matters, commit it and push it to GitHub.
 
+## AI Required Rule
+
+If an AI agent is asked to push, publish, tag, or create a GitHub release for this project, it must read this file first and follow it before taking action.
+
+The AI should assume this file is the source of truth for:
+
+- which folder is the working source
+- which folder is the GitHub publishing repo
+- which files are safe to copy
+- which files must never be committed
+- which validation and secret checks are required
+- which git and GitHub commands should be run before push or release
+
+If the AI has not read this file yet, it should stop and read it before continuing any GitHub-related task.
+
 ## Project Paths
 
 - Working bot folder:
@@ -24,6 +39,24 @@ https://github.com/sasimew/crypto-signal-dashboard-portfolio
 
 Important: `/Users/sasi/Desktop/crypto_bot` is the active working folder but is not the Git repo. AI should copy public-safe files from the bot folder into `/Users/sasi/Documents/Playground`, then commit and push from `/Users/sasi/Documents/Playground`.
 
+## GitHub CLI Requirement
+
+Before any push, tag, or release action, confirm GitHub CLI is installed and authenticated:
+
+```bash
+gh --version
+gh auth status
+```
+
+Expected state:
+
+- `gh` command works
+- active GitHub account is `sasimew`
+- git operations protocol is `https`
+- token has repo access
+
+If `gh` is missing or not authenticated, fix that first before continuing with any GitHub publish flow.
+
 ## Public-Safe Copy Flow
 
 Copy only reviewed public-safe files from the working bot folder to the GitHub publishing repo:
@@ -37,10 +70,29 @@ cp /Users/sasi/Desktop/crypto_bot/Dockerfile /Users/sasi/Documents/Playground/Do
 cp /Users/sasi/Desktop/crypto_bot/export_log.py /Users/sasi/Documents/Playground/export_log.py
 cp /Users/sasi/Desktop/crypto_bot/clean_signal_errors.py /Users/sasi/Documents/Playground/clean_signal_errors.py
 cp /Users/sasi/Desktop/crypto_bot/bot_set2.py /Users/sasi/Documents/Playground/bot_set2.py
+cp /Users/sasi/Desktop/crypto_bot/bot_set3.py /Users/sasi/Documents/Playground/bot_set3.py
 cp /Users/sasi/Desktop/crypto_bot/config_set2.py /Users/sasi/Documents/Playground/config_set2.py
-cp /Users/sasi/Desktop/crypto_bot/bot_set2.py /Users/sasi/Documents/Playground/bot.py
+cp /Users/sasi/Desktop/crypto_bot/bot_set3.py /Users/sasi/Documents/Playground/bot.py
 cp /Users/sasi/Desktop/crypto_bot/config_set2.py /Users/sasi/Documents/Playground/config.py
+cp /Users/sasi/Desktop/crypto_bot/SET3v1_INDICATOR_CHANGES.md /Users/sasi/Documents/Playground/SET3v1_INDICATOR_CHANGES.md
+cp /Users/sasi/Desktop/crypto_bot/safe_publish.sh /Users/sasi/Documents/Playground/safe_publish.sh
+cp /Users/sasi/Desktop/crypto_bot/.github/workflows/secret-guard.yml /Users/sasi/Documents/Playground/.github/workflows/secret-guard.yml
 ```
+
+Preferred shortcut:
+
+```bash
+/Users/sasi/Desktop/crypto_bot/safe_publish.sh "type: short description"
+```
+
+This script is the preferred publish flow because it:
+
+- validates Python syntax
+- copies only allowlisted public-safe files
+- scans for likely secrets
+- blocks forbidden tracked runtime files
+- stages explicit files only
+- commits and pushes to GitHub
 
 Do not copy these files or folders to GitHub:
 
@@ -155,6 +207,13 @@ git tag -a v2.0.0 -m "Release v2.0.0"
 git push origin v2.0.0
 ```
 
+If GitHub CLI is available, AI may also verify the pushed result with:
+
+```bash
+gh repo view sasimew/crypto-signal-dashboard-portfolio
+gh release list -R sasimew/crypto-signal-dashboard-portfolio
+```
+
 ## 7. GitHub Release Checklist
 
 Create a GitHub Release when the update is user-facing, deployable, or marks a stable version.
@@ -196,6 +255,18 @@ From now on, every completed code or documentation update should follow this flo
 3. copy public-safe files to `/Users/sasi/Documents/Playground`
 4. secret scan
 5. stage intended files only
-6. commit with a clear message
-7. push to GitHub from `/Users/sasi/Documents/Playground`
-8. publish a release when the update is deployable or versioned
+6. commit and push, preferably through `safe_publish.sh`
+
+## GitHub Action Guard
+
+The publishing repo should also contain:
+
+```bash
+.github/workflows/secret-guard.yml
+```
+
+This workflow adds a second safety layer on GitHub by:
+
+- rejecting likely real secrets
+- rejecting forbidden tracked paths such as `.env`, `data/`, and `export/`
+- validating Python syntax on push and pull request
