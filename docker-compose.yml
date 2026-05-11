@@ -68,6 +68,7 @@ services:
         echo \"TG_CHAT_ID=$$TELEGRAM_CHAT_ID\" >> /etc/cron.d/cryptobot &&
         echo \"DATA_DIR=$$DATA_DIR\" >> /etc/cron.d/cryptobot &&
         echo '*/5 * * * * root python3 /app/bot_set3.py >> /app/data/bot.log 2>&1' >> /etc/cron.d/cryptobot &&
+        echo '0 1,5,9,13,21 * * * root python3 /app/recheck.py --preview >> /app/data/recheck_preview.log 2>&1' >> /etc/cron.d/cryptobot &&
         echo '0 17 * * * root python3 /app/recheck.py >> /app/data/recheck.log 2>&1' >> /etc/cron.d/cryptobot &&
         echo '' >> /etc/cron.d/cryptobot &&
         chmod 0644 /etc/cron.d/cryptobot &&

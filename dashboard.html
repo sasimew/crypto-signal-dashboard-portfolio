@@ -1966,6 +1966,9 @@ async function renderMultiTimeframeTrend(symbol, hostId){
   host.innerHTML = '<div class="muted"><span class="spinner"></span> Loading multi-timeframe trend...</div>';
 
   var defs = [
+    ['3 min', '3m'],
+    ['5 min', '5m'],
+    ['15 min', '15m'],
     ['30 min', '30m'],
     ['1 hr', '1h'],
     ['4 hr', '4h'],

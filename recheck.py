@@ -204,9 +204,9 @@ def check_day_extreme(sig, fallback_price, candles=None, hit_candles=None):
     hit_label = recheck_label(outcome, hit_level)
     if hit_label in ("TP1", "TP2", "TP3", "S-SL", "H-SL"):
         level = f"{level}; Hit {hit_label}"
-    if hit_label == "H-SL":
+    if hit_label in ("H-SL", "S-SL"):
         outcome = "LOSS ❌"
-        level = f"{level}; H-SL override LOSS"
+        level = f"{level}; {hit_label} override LOSS"
     return outcome, pnl, level, high, low, ref_price
 
 def filter_candles_until(candles, end_th):
@@ -574,6 +574,7 @@ def main():
     today_th = now_thai().date()
     from_date = parse_date_arg("from")
     to_date = parse_date_arg("to") or today_th
+    preview_mode = has_flag("preview")
     is_backfill = has_flag("backfill") or bool(from_date)
 
     if is_backfill:
@@ -589,6 +590,14 @@ def main():
         save_json(cfg.LOG_FILE, logs)
         save_json(cfg.RECHECK_LOG, rechk)
         log(f"✅ Backfill done — migrated {migrated} rows, added {total} recheck rows")
+        return
+
+    if preview_mode:
+        log(f"👀 Preview mode — intraday update for {today_th}")
+        results = process_date(logs, rechk, today_th, send_summary=False, replace_existing=True)
+        save_json(cfg.LOG_FILE, logs)
+        save_json(cfg.RECHECK_LOG, rechk)
+        log(f"✅ Preview done — migrated {migrated} rows | rows:{len(results)}")
         return
 
     yesterday_th = today_th - timedelta(days=1)
