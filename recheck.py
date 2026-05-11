@@ -259,8 +259,6 @@ def recheck_label(outcome, level):
             return label
     if "LOSS" in text or "SOFT SL" in text:
         return "MISS"
-    if "WIN" in text:
-        return "HIT"
     return "WAIT"
 
 def fmt(v):
@@ -537,7 +535,7 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
         msg  = f"📊 *{RECHECK_VERSION} — {date_s}*\n"
         msg += f"_(เฉพาะ conf >= 70 | main benchmark: day high/low หลัง signal)_\n\n"
         msg += f"📈 WIN: *{len(wins)}* | 📉 LOSS: *{len(losses)}* | ⚠️ SoftSL: {len(softsl)} | ⏳ Pending: {len(pending)}\n"
-        msg += f"🏷 Hit: TP {len(hit_tp)} | SL {len(hit_sl)} | miss {len(miss)} | wait {len(wait)}\n"
+        msg += f"🏷 4h Hit: TP {len(hit_tp)} | SL {len(hit_sl)} | miss {len(miss)} | wait {len(wait)}\n"
         if wr is not None:
             msg += f"🎯 *Win Rate: {wr}%*\n\n"
 
@@ -589,14 +587,14 @@ def main():
             total += len(process_date(logs, rechk, d, send_summary=False, replace_existing=True))
             d += timedelta(days=1)
         save_json(cfg.LOG_FILE, logs)
-        save_json(cfg.RECHECK_LOG, rechk[:2000])
+        save_json(cfg.RECHECK_LOG, rechk)
         log(f"✅ Backfill done — migrated {migrated} rows, added {total} recheck rows")
         return
 
     yesterday_th = today_th - timedelta(days=1)
     results = process_date(logs, rechk, yesterday_th, send_summary=True)
     save_json(cfg.LOG_FILE, logs)
-    save_json(cfg.RECHECK_LOG, rechk[:2000])
+    save_json(cfg.RECHECK_LOG, rechk)
     log(f"✅ Done — migrated {migrated} rows | rows:{len(results)}")
 
 if __name__ == "__main__":

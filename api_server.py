@@ -38,6 +38,11 @@ app = Flask(__name__, static_folder=cfg.BASE_DIR)
 CORS(app)
 APP_PORT = int(os.getenv("PORT", getattr(cfg, "FLASK_PORT", 3000)))
 
+def runtime_display_version():
+    if BOT_MODULE_NAME == "bot_set3":
+        return "SET3v1"
+    return getattr(cfg, "BOT_VERSION", "unknown")
+
 # ─── BINANCE FUTURES CACHE ────────────────────────────────────
 # cache เก็บ {symbol: {data, fetched_at, ttl}}
 _bnf_cache = {}
@@ -415,7 +420,7 @@ def load_json(path):
 def save_json(path, data):
     try:
         with open(path, "w") as f:
-            json.dump(data[:2000], f, indent=2, ensure_ascii=False)
+            json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"Save error: {e}")
 
@@ -561,7 +566,7 @@ def build_contact_telegram_message(payload):
 # ─── ROUTES ───────────────────────────────────────────────
 @app.route("/")
 def root():
-    return jsonify({"status": "ok", "version": getattr(cfg, "BOT_VERSION", "unknown"), "dashboard": "/dashboard"})
+    return jsonify({"status": "ok", "version": runtime_display_version(), "dashboard": "/dashboard"})
 
 @app.route("/dashboard")
 @app.route("/dashboard/")
@@ -591,7 +596,7 @@ def health():
     return jsonify({
         "status": "ok",
         "time": now_thai().strftime('%Y-%m-%d %H:%M:%S TH'),
-        "version": getattr(cfg, "BOT_VERSION", "unknown"),
+        "version": runtime_display_version(),
         "bot_module": BOT_MODULE_NAME,
         "config_module": CFG_MODULE_NAME,
         "cron_running": cron_running,
@@ -804,19 +809,21 @@ def api_signals():
 @app.route("/api/stats")
 def api_stats():
     raw_logs, display_logs = get_display_signal_logs()
-    total      = len(raw_logs)
-    n_filtered = sum(1 for s in raw_logs if s.get("verdict")=="FILTERED")
+    total      = len(display_logs)
+    raw_total  = len(raw_logs)
+    n_filtered = sum(1 for s in raw_logs if s.get("verdict") == "FILTERED")
+    n_weak     = sum(1 for s in raw_logs if s.get("verdict") == "WEAK SIGNAL")
     n_volatile = sum(1 for s in raw_logs if s.get("regime")=="VOLATILE")
     claude_used= sum(1 for s in raw_logs if s.get("claude_called"))
-    approved   = sum(1 for s in raw_logs if s.get("verdict") in ("APPROVED","WEAK APPROVAL"))
-    rejected   = sum(1 for s in raw_logs if s.get("verdict") in ("REJECTED","NO TRADE"))
+    approved   = sum(1 for s in display_logs if s.get("verdict") in ("APPROVED","WEAK APPROVAL"))
+    rejected   = sum(1 for s in display_logs if s.get("verdict") in ("REJECTED","NO TRADE"))
 
     # By strategy
-    trend_sigs  = [s for s in raw_logs if s.get("strategy_used")=="TREND_FOLLOW"]
-    rebound_sigs= [s for s in raw_logs if s.get("strategy_used")=="REBOUND"]
+    trend_sigs  = [s for s in display_logs if s.get("strategy_used")=="TREND_FOLLOW"]
+    rebound_sigs= [s for s in display_logs if s.get("strategy_used") in ("REBOUND", "REBOUND_HTF")]
 
     # Win rate
-    rechecked = [s for s in raw_logs if s.get("recheck")]
+    rechecked = [s for s in display_logs if s.get("recheck")]
     wins      = [s for s in rechecked if "WIN"  in (s["recheck"].get("outcome",""))]
     losses    = [s for s in rechecked if "LOSS" in (s["recheck"].get("outcome",""))]
     win_rate  = round(len(wins)/(len(wins)+len(losses))*100) if (wins or losses) else None
@@ -824,42 +831,50 @@ def api_stats():
     # Regime breakdown
     regime_counts = {}
     for r in ["TRENDING","RANGING","VOLATILE","MIXED"]:
-        regime_counts[r] = sum(1 for s in raw_logs if s.get("regime")==r)
+        regime_counts[r] = sum(1 for s in display_logs if s.get("regime")==r)
 
     # Cost estimate (Haiku)
     est_cost = (claude_used * 400/1e6 * 0.80) + (claude_used * 300/1e6 * 4.0)
 
     # BUG-10 FIX: ใช้ TH timezone ไม่ใช่ UTC (เวลาไทย +7)
     today      = datetime.now(TZ_THAI).date()
-    today_sigs = [s for s in raw_logs if s.get("time","")[:10]==str(today)]
+    today_sigs = [s for s in display_logs if s.get("time","")[:10]==str(today)]
     today_approved = sum(1 for s in today_sigs if s.get("verdict") in ("APPROVED", "WEAK APPROVAL"))
 
     by_symbol = {}
     for sym in cfg.SYMBOLS:
-        sl = [s for s in raw_logs if s.get("symbol")==sym]
+        sl = [s for s in display_logs if s.get("symbol")==sym]
         by_symbol[sym] = {
             "total":    len(sl),
             "approved": sum(1 for s in sl if s.get("verdict") in ("APPROVED","WEAK APPROVAL")),
             "filtered": sum(1 for s in sl if s.get("verdict")=="FILTERED"),
             "trending": sum(1 for s in sl if s.get("strategy_used")=="TREND_FOLLOW"),
-            "rebound":  sum(1 for s in sl if s.get("strategy_used")=="REBOUND"),
+            "rebound":  sum(1 for s in sl if s.get("strategy_used") in ("REBOUND", "REBOUND_HTF")),
         }
 
+    def gate_name(sig):
+        return str(sig.get("gate_path", "") or "")
+
+    def verdict_name(sig):
+        return str(sig.get("verdict", "") or "")
+
     gate_counts = {
-        "t1": sum(1 for s in raw_logs if str(s.get("gate_path","")).startswith("TIER1")),
-        "t2": sum(1 for s in raw_logs if str(s.get("gate_path","")).startswith("TIER2")),
-        "t3": sum(1 for s in raw_logs if str(s.get("gate_path","")).startswith("TIER3")),
-        "t4": sum(1 for s in raw_logs if str(s.get("gate_path","")).startswith("TIER4") or str(s.get("gate_path","")).startswith("MANUAL_CLAUDE")),
-        "t5": sum(1 for s in raw_logs if str(s.get("gate_path","")).startswith("TIER5")),
+        "t1": sum(1 for s in raw_logs if gate_name(s).startswith("TIER1") or verdict_name(s) == "FILTERED"),
+        "t2": sum(1 for s in raw_logs if gate_name(s).startswith("TIER2") or verdict_name(s) == "WEAK SIGNAL"),
+        "t3": sum(1 for s in raw_logs if gate_name(s).startswith("TIER3")),
+        "t4": sum(1 for s in raw_logs if gate_name(s).startswith("TIER4") or gate_name(s).startswith("MANUAL_CLAUDE")),
+        "t5": sum(1 for s in raw_logs if gate_name(s).startswith("TIER5")),
     }
 
     return jsonify({
         "ok": True,
         "total_signals":   total,
+        "raw_total_signals": raw_total,
         "filter_skipped":  n_filtered,
+        "weak_signals":    n_weak,
         "volatile_skipped":n_volatile,
         "claude_called":   claude_used,
-        "filter_rate":     round(n_filtered/total*100,1) if total else 0,
+        "filter_rate":     round(n_filtered/raw_total*100,1) if raw_total else 0,
         "approved":        approved,
         "rejected":        rejected,
         "win_rate":        win_rate,
@@ -886,16 +901,24 @@ def api_recheck():
     """
     rechk = load_json(cfg.RECHECK_LOG)
     signal_logs = load_json(cfg.LOG_FILE)
-    limit = min(int(request.args.get("limit", 200)), 500)
+    limit = min(int(request.args.get("limit", 200)), 5000)
     days  = int(request.args.get("days", 7))
     date_filter = request.args.get("date", "").strip()
     from_date = request.args.get("from", "").strip()
     to_date = request.args.get("to", "").strip()
 
+    recheck_signal_ids = {
+        r.get("signal_id") for r in rechk
+        if r.get("signal_id")
+    }
     signal_logs = [
         s for s in signal_logs
-        if (s.get("conf") or 0) >= 70
-        and s.get("direction") in ("Long", "Short")
+        if s.get("direction") in ("Long", "Short")
+        and (
+            (s.get("conf") or 0) >= 70
+            or s.get("id") in recheck_signal_ids
+            or s.get("recheck")
+        )
     ]
 
     by_signal_id = {s.get("id"): s for s in signal_logs if s.get("id")}
@@ -946,6 +969,42 @@ def api_recheck():
             "signal_time_thai": s.get("time_thai"),
             "recheck_date": coalesce(rr.get("recheck_date"), sr.get("recheck_date"), sig_date),
             "time": coalesce(rr.get("time"), sr.get("time"), s.get("time")),
+        })
+
+    existing_signal_ids = {r.get("signal_id") for r in rows if r.get("signal_id")}
+    for rr in rechk:
+        sig_id = rr.get("signal_id")
+        if not sig_id or sig_id in existing_signal_ids:
+            continue
+        rows.append({
+            "signal_id": sig_id,
+            "symbol": rr.get("symbol"),
+            "direction": rr.get("direction"),
+            "verdict": rr.get("verdict"),
+            "conf": rr.get("conf"),
+            "pre_conf": rr.get("pre_conf"),
+            "gate_path": rr.get("gate_path", "—"),
+            "strategy": rr.get("strategy", "—"),
+            "regime": rr.get("regime", "—"),
+            "entry": rr.get("entry"),
+            "ssl": rr.get("ssl"),
+            "hsl": rr.get("hsl"),
+            "tp1": rr.get("tp1"),
+            "tp2": rr.get("tp2"),
+            "tp3": rr.get("tp3"),
+            "current_price": rr.get("current_price"),
+            "benchmark_price": rr.get("benchmark_price"),
+            "outcome": rr.get("outcome"),
+            "evaluation_type": rr.get("evaluation_type"),
+            "would_outcome": rr.get("would_outcome"),
+            "recheck_label": rr.get("recheck_label"),
+            "pnl_pct": rr.get("pnl_pct"),
+            "level_hit": rr.get("level_hit", "—"),
+            "reason": rr.get("reason"),
+            "signal_time": rr.get("time"),
+            "signal_time_thai": None,
+            "recheck_date": rr.get("recheck_date"),
+            "time": rr.get("time"),
         })
 
     available_dates = sorted({

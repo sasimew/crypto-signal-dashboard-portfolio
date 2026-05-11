@@ -2304,7 +2304,7 @@ function showReasonModal(sigId, reason){
 
 // ── RECHECK — BUG-13 FIX: แสดง 7 วัน, auto refresh 00:00 ────
 async function loadRecheck(){
-  var query = '/api/recheck?days=365&limit=500';
+  var query = '/api/recheck?days=365&limit=5000';
   if(_recheckMode === 'range' && _recheckRangeStart){
     query += `&from=${encodeURIComponent(_recheckRangeStart)}&to=${encodeURIComponent(_recheckRangeEnd || _recheckRangeStart)}`;
   }
@@ -2382,7 +2382,7 @@ async function loadRecheck(){
         if(savedLevel.includes('TP1')) return 'TP1';
         return 'HIT';
       }
-      if(saved==='WIN') return 'HIT';
+      if(saved==='WIN') return 'WAIT';
       return saved;
     }
     var out = displayOutcome(x);
@@ -2394,7 +2394,7 @@ async function loadRecheck(){
     if(level.includes('H-SL') || level.includes('Hard SL')) return 'H-SL';
     if(level.includes('S-SL') || level.includes('Soft SL')) return 'S-SL';
     if(out.includes('LOSS') || out.includes('SOFT SL')) return 'MISS';
-    if(out.includes('WIN')) return 'HIT';
+    if(out.includes('WIN')) return 'WAIT';
     return 'WAIT';
   }
 
@@ -2440,7 +2440,8 @@ async function loadRecheck(){
       <div class="stat"><div class="stat-label">Total</div><div class="stat-value">${deduped.length}</div></div>
     </div>
     ${(flat+unknown)>0?`<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Flat: ${flat} | Unknown: ${unknown}</div>`:''}
-    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Hit: TP ${hitTp} | SL ${hitSl} | Miss ${miss} | Wait ${wait}</div>
+    <div style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px;letter-spacing:.02em">4h Hit: TP ${hitTp} | SL ${hitSl} | Miss ${miss} | Wait ${wait}</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px">วัด hit ภายใน 4 ชั่วโมงแรกหลัง signal ถ้ายังไม่โดน TP หรือ SL ให้รอ recheck รอบ 00:00 TH</div>
     <div class="tbl-wrap">
     <table>
       <thead><tr><th>Date</th><th>Signal</th><th>Symbol</th><th>Dir</th><th>Verdict</th><th>Conf</th><th>Entry</th><th>TP1</th><th>Hard SL</th><th>P&amp;L</th><th>Outcome</th><th>Hit</th></tr></thead>
