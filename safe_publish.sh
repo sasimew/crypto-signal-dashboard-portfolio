@@ -36,6 +36,7 @@ copy_file "$SRC_ROOT/config_set2.py" "$DST_ROOT/config_set2.py"
 copy_file "$SRC_ROOT/bot_set3.py" "$DST_ROOT/bot.py"
 copy_file "$SRC_ROOT/config_set2.py" "$DST_ROOT/config.py"
 copy_file "$SRC_ROOT/SET3v1_INDICATOR_CHANGES.md" "$DST_ROOT/SET3v1_INDICATOR_CHANGES.md"
+copy_file "$SRC_ROOT/PRODUCTION_BUG_REPORT_2026-06-13.md" "$DST_ROOT/PRODUCTION_BUG_REPORT_2026-06-13.md"
 copy_file "$SRC_ROOT/README.md" "$DST_ROOT/README.md"
 copy_file "$SRC_ROOT/safe_publish.sh" "$DST_ROOT/safe_publish.sh"
 copy_file "$SRC_ROOT/.github/workflows/secret-guard.yml" "$DST_ROOT/.github/workflows/secret-guard.yml"
@@ -81,6 +82,7 @@ git -C "$DST_ROOT" add \
   bot.py \
   config.py \
   SET3v1_INDICATOR_CHANGES.md \
+  PRODUCTION_BUG_REPORT_2026-06-13.md \
   README.md \
   safe_publish.sh \
   .github/workflows/secret-guard.yml

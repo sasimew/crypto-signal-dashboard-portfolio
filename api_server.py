@@ -37,11 +37,22 @@ bot_module, BOT_MODULE_NAME = _load_first_module("CRYPTO_BOT_MODULE", ("bot_set3
 app = Flask(__name__, static_folder=cfg.BASE_DIR)
 CORS(app)
 APP_PORT = int(os.getenv("PORT", getattr(cfg, "FLASK_PORT", 3000)))
+DATA_DIR = os.path.dirname(getattr(cfg, "LOG_FILE", os.path.join(os.getcwd(), "data", "signal_log.json")))
+BETA_PATTERN_MEMORY_FILE = os.path.join(DATA_DIR, "pattern_memory_beta.json")
+BETA_RESEARCH_SUMMARY_FILE = os.path.join(DATA_DIR, "beta_research_summary.json")
 
 def runtime_display_version():
     if BOT_MODULE_NAME == "bot_set3":
         return "SET3v1"
     return getattr(cfg, "BOT_VERSION", "unknown")
+
+def load_beta_pattern_memory():
+    data = load_json(BETA_PATTERN_MEMORY_FILE)
+    return data if isinstance(data, dict) else {}
+
+def load_beta_research_summary():
+    data = load_json(BETA_RESEARCH_SUMMARY_FILE)
+    return data if isinstance(data, dict) else {}
 
 # ─── BINANCE FUTURES CACHE ────────────────────────────────────
 # cache เก็บ {symbol: {data, fetched_at, ttl}}
@@ -827,14 +838,22 @@ def api_stats():
     wins      = [s for s in rechecked if "WIN"  in (s["recheck"].get("outcome",""))]
     losses    = [s for s in rechecked if "LOSS" in (s["recheck"].get("outcome",""))]
     win_rate  = round(len(wins)/(len(wins)+len(losses))*100) if (wins or losses) else None
+    recheck_labels = [str((s.get("recheck") or {}).get("recheck_label") or "") for s in rechecked]
+    tp_family = sum(1 for label in recheck_labels if label.startswith("TP"))
+    sl_family = sum(1 for label in recheck_labels if label.endswith("-SL"))
+    miss_4h   = sum(1 for label in recheck_labels if label == "MISS")
+    wait_4h   = sum(1 for label in recheck_labels if label == "WAIT")
+    tp_family_rate = round(tp_family / (tp_family + sl_family + miss_4h) * 100, 2) if (tp_family + sl_family + miss_4h) else None
 
     # Regime breakdown
     regime_counts = {}
     for r in ["TRENDING","RANGING","VOLATILE","MIXED"]:
         regime_counts[r] = sum(1 for s in display_logs if s.get("regime")==r)
 
-    # Cost estimate (Haiku)
-    est_cost = (claude_used * 400/1e6 * 0.80) + (claude_used * 300/1e6 * 4.0)
+    beta_summary = load_beta_research_summary()
+    pattern_memory = load_beta_pattern_memory()
+    miss_no_followthrough = int(beta_summary.get("miss_no_followthrough", 0) or 0)
+    pattern_memory_count = len(pattern_memory)
 
     # BUG-10 FIX: ใช้ TH timezone ไม่ใช่ UTC (เวลาไทย +7)
     today      = datetime.now(TZ_THAI).date()
@@ -862,7 +881,7 @@ def api_stats():
         "t1": sum(1 for s in raw_logs if gate_name(s).startswith("TIER1") or verdict_name(s) == "FILTERED"),
         "t2": sum(1 for s in raw_logs if gate_name(s).startswith("TIER2") or verdict_name(s) == "WEAK SIGNAL"),
         "t3": sum(1 for s in raw_logs if gate_name(s).startswith("TIER3")),
-        "t4": sum(1 for s in raw_logs if gate_name(s).startswith("TIER4") or gate_name(s).startswith("MANUAL_CLAUDE")),
+        "t4": sum(1 for s in raw_logs if gate_name(s).startswith("TIER4") or gate_name(s).startswith("MANUAL_BOT_REVIEW")),
         "t5": sum(1 for s in raw_logs if gate_name(s).startswith("TIER5")),
     }
 
@@ -874,15 +893,23 @@ def api_stats():
         "weak_signals":    n_weak,
         "volatile_skipped":n_volatile,
         "claude_called":   claude_used,
+        "beta_mode":       BOT_MODULE_NAME == "bot_set3",
         "filter_rate":     round(n_filtered/raw_total*100,1) if raw_total else 0,
         "approved":        approved,
         "rejected":        rejected,
         "win_rate":        win_rate,
         "wins":            len(wins),
         "losses":          len(losses),
+        "tp_family":       tp_family,
+        "sl_family":       sl_family,
+        "miss_4h":         miss_4h,
+        "wait_4h":         wait_4h,
+        "tp_family_rate":  tp_family_rate,
+        "miss_no_followthrough": miss_no_followthrough,
+        "pattern_memory_count": pattern_memory_count,
         "today_signals":   len(today_sigs),
         "today_approved":  today_approved,
-        "est_cost_usd":    round(est_cost, 4),
+        "est_cost_usd":    0,
         "regime_breakdown":regime_counts,
         "strategy_breakdown": {
             "TREND_FOLLOW": len(trend_sigs),
@@ -891,6 +918,23 @@ def api_stats():
         "display_total_signals": len(display_logs),
         "_gate_counts": gate_counts,
         "by_symbol": by_symbol,
+    })
+
+@app.route("/api/beta-memory")
+def api_beta_memory():
+    memory = load_beta_pattern_memory()
+    summary = load_beta_research_summary()
+    rows = []
+    for key, entry in memory.items():
+        row = dict(entry or {})
+        row["pattern_key_v1"] = key
+        rows.append(row)
+    rows.sort(key=lambda r: (-(r.get("sample_size") or 0), -(r.get("miss_rate") or 0)))
+    return jsonify({
+        "ok": True,
+        "summary": summary,
+        "pattern_memory_count": len(rows),
+        "top_patterns": rows[:12],
     })
 
 @app.route("/api/recheck")
@@ -1256,10 +1300,10 @@ def api_analyze():
 
         # ── Step 4: 5-Tier Gate (same as bot.py) ─────────────
         #
-        # Tier 5: pre_conf >= AUTO_APPROVE_CONF + alignment → APPROVED (no Claude)
-        # Tier 4: pre_conf >= CLAUDE_MIN_CONF              → Claude validates
+        # Tier 5: pre_conf >= AUTO_APPROVE_CONF + alignment → APPROVED
+        # Tier 4: pre_conf >= CLAUDE_MIN_CONF              → Bot Review validates
         # Tier 3: pre_conf >= WEAK_MIN_CONF, not passed    → NO TRADE
-        # Manual analysis follows the same bot gate before Claude to avoid
+        # Manual analysis follows the same bot gate before review to avoid
         # conflicting manual scores for the same market snapshot.
 
         low_liq = bot_module.low_liquidity_block_reason(t15, pre_conf, passed=passed)
@@ -1384,7 +1428,7 @@ def api_analyze():
         if pre_conf < effective_claude_min and not passed:
             sig = bot_module.build_signal(
                 symbol, final_direction, m, "NO TRADE", pre_conf, {},
-                f"Manual bot gate: pre_conf={pre_conf}% below Claude gate {effective_claude_min}%, filter not passed",
+                f"Manual bot gate: pre_conf={pre_conf}% below review gate {effective_claude_min}%, filter not passed",
                 regime, regime_conf, regime_reasons,
                 strategy, filter_reason, tf_bk, rb_data,
                 gate_path="MANUAL_BOT_REJECT",
@@ -1393,44 +1437,23 @@ def api_analyze():
             )
             logs = load_json(cfg.LOG_FILE)
             sig["reject_reason"] = bot_module.with_main_score_note(
-                f"Manual bot gate: pre_conf={pre_conf}% below Claude gate {effective_claude_min}%, filter not passed",
+                f"Manual bot gate: pre_conf={pre_conf}% below review gate {effective_claude_min}%, filter not passed",
                 sig.get("main_score_note"),
             )
             logs.insert(0, sig)
             save_json(cfg.LOG_FILE, logs)
             return jsonify({"ok": True, "signal": sig, "tg_sent": False, "tg_reason": "not sent (NO TRADE)"})
 
-        # ── Tier 4: Claude validates ──────────────────────────
-        summary  = bot_module.build_summary(m, regime, strategy, tf_bk, rb_data, direction=final_direction)  # BUG-08 FIX
-        ai_text  = bot_module.call_claude(symbol, final_direction, strategy, summary)
-        verdict, conf, levels = bot_module.parse_ai(ai_text)
+        # ── Tier 4: Bot Review validates ──────────────────────
+        review = bot_module.t4_bot_review(symbol, final_direction, strategy, regime, pre_conf, m, tf_bk, rb_data)
+        verdict = review["verdict"]
+        conf = review["conf"]
+        levels = review["levels"]
+        ai_text = f"BOT_REVIEW:{conf}"
 
-        if not levels.get("entry"):
-            levels["entry"] = str(round(m["price"], 2))
-
-        confidence_for_levels = max(pre_conf, conf) if pre_conf > 0 else conf
-
-        # ✅ Fallback TP/SL — TRADEABLE only
-        if verdict in ("APPROVED", "WEAK APPROVAL"):
-            fallback = bot_module.calc_fallback_levels(m["price"], final_direction)
-            if not levels.get("ssl"):  levels["ssl"] = fallback["ssl"]
-            if not levels.get("hsl"):  levels["hsl"] = fallback["hsl"]
-            if not levels.get("tp1"):  levels["tp1"] = fallback["tp1"]
-            if not levels.get("tp2"):  levels["tp2"] = fallback["tp2"]
-            if not levels.get("tp3"):  levels["tp3"] = fallback["tp3"]
-        elif confidence_for_levels >= 50:
-            fallback = bot_module.calc_fallback_levels(m["price"], final_direction)
-            levels["suggested_entry"] = levels.get("entry") or str(round(m["price"], 2))
-            levels["suggested_ssl"] = levels.get("ssl") or fallback["ssl"]
-            levels["suggested_hsl"] = levels.get("hsl") or fallback["hsl"]
-            levels["suggested_tp1"] = levels.get("tp1") or fallback["tp1"]
-            levels["suggested_tp2"] = levels.get("tp2") or fallback["tp2"]
-            levels["suggested_tp3"] = levels.get("tp3") or fallback["tp3"]
-
-        # Manual log score must stay aligned with bot scoring; Claude confidence is kept
-        # separately for audit so manual Long/Short clicks cannot create conflicting scores.
+        # Manual log score must stay aligned with bot scoring.
         display_conf = pre_conf if pre_conf > 0 else conf
-        gate = "TIER4_CLAUDE" if pre_conf >= effective_claude_min else "MANUAL_CLAUDE"
+        gate = "TIER4_BOT_REVIEW" if pre_conf >= effective_claude_min else "MANUAL_BOT_REVIEW"
 
         # ── Step 5: Build Signal ──────────────────────────────
         sig = bot_module.build_signal(
@@ -1439,12 +1462,12 @@ def api_analyze():
             strategy, filter_reason, tf_bk, rb_data,
             gate_path=gate,
             pre_conf=pre_conf,
-            claude_called=True
+            claude_called=False
         )
         if selected_score is not None:
             sig["selected_score"] = selected_score
             sig["opposite_score"] = opposite_score
-        sig["ai_conf"] = conf
+        sig["ai_conf"] = None
 
         # ── Step 6: บันทึก log ───────────────────────────────
         logs = load_json(cfg.LOG_FILE)
@@ -1676,11 +1699,21 @@ def _tg_level_line(icon, label, value, entry, direction, extra=""):
     return f"{icon} {label}: {rendered}" + (f" {details}" if details else "") + "\n"
 
 def _tg_header(title, badge, subtitle=None):
-    msg = f"{title}\n⚡ *{badge}*\n"
+    msg = f"🔷 *BOT Codex Trade*\n{title}\n🔹 *{badge}*\n"
     if subtitle:
         msg += f"_{subtitle}_\n"
     msg += "━━━━━━\n\n"
     return msg
+
+def _bot_conf_value(sig):
+    for key in ("t4_score", "pre_conf", "conf"):
+        val = sig.get(key)
+        if val is not None:
+            try:
+                return int(val)
+            except Exception:
+                pass
+    return "—"
 
 def tg_trade_eligible(sig):
     is_manual_trade = (
@@ -1717,7 +1750,7 @@ def build_tg_trade_msg(sig):
     label = "MANUAL SIGNAL" if is_manual_trade else ("APPROVED SIGNAL" if verdict == "APPROVED" else "WEAK APPROVAL")
     sym = sig["symbol"].replace("USDT", "")
     direction = sig["direction"]
-    title = ("🟢 LONG" if direction == "Long" else "🔴 SHORT") + f" {sym}/USDT | Conf: {sig.get('conf', '—')}/100"
+    title = ("🟦 LONG" if direction == "Long" else "🔵 SHORT") + f" {sym}/USDT | Bot Conf: {_bot_conf_value(sig)}/100"
     regime = sig.get("regime", "—")
     strat = sig.get("strategy_used", "—")
     gate = sig.get("gate_path", "—")
@@ -1762,7 +1795,7 @@ def build_tg_rejected_msg(sig):
     direction = sig["direction"]
     gate = str(sig.get("gate_path", ""))
     manual_suffix = " (manual)" if gate.startswith("MANUAL") else ""
-    title = ("🟢 LONG" if direction == "Long" else "🔴 SHORT") + f" {sym}/USDT | Conf: {sig.get('conf', '—')}/100{manual_suffix}"
+    title = ("🟦 LONG" if direction == "Long" else "🔵 SHORT") + f" {sym}/USDT | Bot Conf: {_bot_conf_value(sig)}/100{manual_suffix}"
     regime = sig.get("regime", "—")
     strat = sig.get("strategy_used", "—")
     rc = sig.get("reason_code", "—")
@@ -1807,7 +1840,7 @@ def build_tg_rebound_alert(sig, rb_data):
     )
     sym = sig["symbol"].replace("USDT", "")
     direction = sig["direction"]
-    title = ("🟢 LONG" if direction == "Long" else "🔴 SHORT") + f" {sym}/USDT | Conf: {sig.get('conf', '—')}/100"
+    title = ("🟦 LONG" if direction == "Long" else "🔵 SHORT") + f" {sym}/USDT | Bot Conf: {_bot_conf_value(sig)}/100"
     if is_manual_trade:
         label = "MANUAL SIGNAL"
         subtitle = "rebound setup — ใช้ระดับราคาตาม dashboard"
@@ -1849,7 +1882,7 @@ def build_tg_rebound_alert_simple(symbol, direction, price, rb_data, reasons):
     """Rebound scan alert in the same visual family as other Telegram messages."""
     sym = symbol.replace("USDT", "")
     conf = rb_data.get("conf") or rb_data.get("confidence") or "—"
-    title = ("🟢 LONG" if direction == "Long" else "🔴 SHORT") + f" {sym}/USDT | Conf: {conf}"
+    title = ("🟦 LONG" if direction == "Long" else "🔵 SHORT") + f" {sym}/USDT | Bot Conf: {conf}"
     subtitle = rb_data.get("subtitle") or "15m/1h bounce — 4h ยังไม่ confirm"
     regime = rb_data.get("regime") or "RANGING"
     strategy = rb_data.get("strategy") or "REBOUND"

@@ -3,16 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม</title>
-<meta name="description" content="มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม">
+<title>BOT TRADE SIGNAL · sasi.asia</title>
+<meta name="description" content="BOT TRADE SIGNAL dashboard for live bot review, TP-family tracking, recheck analytics, and pattern memory.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="sasi.asia">
-<meta property="og:title" content="มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม">
-<meta property="og:description" content="มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม">
+<meta property="og:title" content="BOT TRADE SIGNAL · sasi.asia">
+<meta property="og:description" content="BOT TRADE SIGNAL dashboard for live bot review, TP-family tracking, recheck analytics, and pattern memory.">
 <meta property="og:url" content="https://sasi.asia/dashboard/">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม">
-<meta name="twitter:description" content="มิเตพาหุหะติ · พุทธะ มะอะอุ · นะโมพุทธายะ · วิระทะโย วิระโคนายัง วิระหิงสา วิระทาสี วิระทาสา วิระอิตถิโย · พุทธัสสะ มาณีมานะ พุทธัสสะ สะวาโหม">
+<meta name="twitter:title" content="BOT TRADE SIGNAL · sasi.asia">
+<meta name="twitter:description" content="BOT TRADE SIGNAL dashboard for live bot review, TP-family tracking, recheck analytics, and pattern memory.">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%230a0a0f'/%3E%3Cpath d='M76 24H42Q28 24 28 38Q28 52 42 52H60Q74 52 74 66Q74 80 60 80H24' fill='none' stroke='%23ff294d' stroke-width='15' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
@@ -65,9 +65,9 @@ body::before {
   border-radius: 14px;
 }
 .logo { font-family: var(--mono); font-size: 14px; font-weight: 700; letter-spacing: 0.08em; }
-.logo span { color: var(--green); }
+.logo span { color: var(--blue); }
 .header-right { display: flex; align-items: center; gap: 12px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
-.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+.pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); animation: pulse 2s infinite; }
 @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
 
 /* TABS */
@@ -680,7 +680,7 @@ select:focus, input:focus { border-color: var(--muted); }
 
 <!-- HEADER -->
 <div class="header">
-  <div class="logo">CRYPTO<span>SIGNAL</span> <span style="color:var(--muted);font-size:11px">sasi.asia</span></div>
+  <div class="logo">BOT<span>TRADE SIGNAL</span> <span style="color:var(--muted);font-size:11px">sasi.asia</span></div>
   <div class="header-right">
     <span class="pulse"></span>
     <span id="clock">--:--:--</span>
@@ -708,9 +708,9 @@ select:focus, input:focus { border-color: var(--muted); }
       <div class="stat-sub">all time &nbsp;|&nbsp; <span id="s-today-inline" style="color:var(--blue)">—</span> today</div>
     </div>
     <div class="stat">
-      <div class="stat-label">Claude Calls</div>
-      <div class="stat-value green" id="s-claude" style="font-size:26px">—</div>
-      <div class="stat-sub">gray-zone only</div>
+      <div class="stat-label">TP Family</div>
+      <div class="stat-value green" id="s-tpfamily" style="font-size:26px">—</div>
+      <div class="stat-sub"><span id="s-tpfamily-rate" style="color:var(--blue)">—</span> resolved hit rate</div>
     </div>
     <div class="stat">
       <div class="stat-label">Win Rate</div>
@@ -723,10 +723,10 @@ select:focus, input:focus { border-color: var(--muted); }
       <div class="stat-sub"><span id="s-approved" style="color:var(--green)">—</span> approved &nbsp;|&nbsp; auto refresh 5m</div>
     </div>
   </div>
-  <!-- Gate Breakdown — Bot vs Claude ผ่านไหม -->
+  <!-- Gate Breakdown — Bot-only Tuned -->
   <div class="card" style="margin-top:0;padding:12px 14px;background:rgba(255,255,255,.02)">
     <div class="flex-between" style="margin-bottom:10px">
-      <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Gate Breakdown — Bot vs Claude</span>
+      <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Gate Breakdown — Bot-only Tuned</span>
       <span id="gate-updated" class="muted" style="font-size:10px">—</span>
     </div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;font-size:11px">
@@ -746,9 +746,9 @@ select:focus, input:focus { border-color: var(--muted); }
         <div class="muted" style="font-size:9px">Bot Reject</div>
       </div>
       <div style="text-align:center;padding:8px 4px;background:rgba(76,201,240,.08);border-radius:8px;border:1px solid rgba(76,201,240,.3)">
-        <div style="color:var(--blue);font-size:9px;margin-bottom:4px">T4 🤖 Claude</div>
+        <div style="color:var(--blue);font-size:9px;margin-bottom:4px">T4 🤖 Review</div>
         <div id="g-t4" style="font-family:var(--mono);font-size:20px;font-weight:700;color:var(--blue)">—</div>
-        <div class="muted" style="font-size:9px">Claude Valid</div>
+        <div class="muted" style="font-size:9px">Bot Review</div>
       </div>
       <div style="text-align:center;padding:8px 4px;background:rgba(0,217,126,.08);border-radius:8px;border:1px solid rgba(0,217,126,.3)">
         <div style="color:var(--green);font-size:9px;margin-bottom:4px">T5 ⚡ Auto</div>
@@ -756,6 +756,30 @@ select:focus, input:focus { border-color: var(--muted); }
         <div class="muted" style="font-size:9px">Auto Approved</div>
       </div>
     </div>
+  </div>
+  <div class="card" style="margin-top:0;padding:12px 14px;background:rgba(255,255,255,.02)">
+    <div class="flex-between" style="margin-bottom:10px">
+      <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Bot Trade Snapshot</span>
+      <span class="muted" style="font-size:10px">live result / weak follow-through / learned patterns</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+      <div style="padding:10px 12px;background:rgba(0,217,126,.06);border:1px solid rgba(0,217,126,.18);border-radius:10px">
+        <div class="muted" style="font-size:10px;margin-bottom:6px">Live TP Hits</div>
+        <div id="beta-tp-family" style="font-family:var(--mono);font-size:24px;font-weight:700;color:var(--green)">—</div>
+        <div id="beta-tp-family-sub" class="muted" style="font-size:10px">TP1 / TP2 / TP3 grouped from live recheck</div>
+      </div>
+      <div style="padding:10px 12px;background:rgba(255,183,3,.06);border:1px solid rgba(255,183,3,.2);border-radius:10px">
+        <div class="muted" style="font-size:10px;margin-bottom:6px">Weak Follow-through</div>
+        <div id="beta-miss-follow" style="font-family:var(--mono);font-size:24px;font-weight:700;color:var(--yellow)">—</div>
+        <div class="muted" style="font-size:10px">research cases that moved but did not continue</div>
+      </div>
+      <div style="padding:10px 12px;background:rgba(76,201,240,.06);border:1px solid rgba(76,201,240,.2);border-radius:10px">
+        <div class="muted" style="font-size:10px;margin-bottom:6px">Learned Patterns</div>
+        <div id="beta-pattern-count" style="font-family:var(--mono);font-size:24px;font-weight:700;color:var(--blue)">—</div>
+        <div class="muted" style="font-size:10px">usable pattern groups from April-May research</div>
+      </div>
+    </div>
+    <div id="beta-top-patterns" style="margin-top:10px;font-size:11px;color:var(--muted)">Loading beta patterns...</div>
   </div>
 
   <!-- LIVE TREND -->
@@ -810,7 +834,7 @@ select:focus, input:focus { border-color: var(--muted); }
       </div>
 
       <div id="quick-loading" style="display:none;text-align:center;padding:16px;color:var(--muted)">
-        <span class="spinner"></span> Claude กำลังวิเคราะห์...
+        <span class="spinner"></span> Bot Review กำลังวิเคราะห์...
       </div>
       <div class="ai-result" id="quick-result"></div>
     </div>
@@ -892,22 +916,22 @@ select:focus, input:focus { border-color: var(--muted); }
 <!-- ═══ COST & STATS ═════════════════════════════════════════ -->
 <div id="pane-cost" class="pane">
   <div class="card">
-    <div class="card-title">Claude API Cost Estimate</div>
+    <div class="card-title">Beta Bot Calibration</div>
     <div class="cost-grid" id="cost-grid">
-      <div class="cost-item"><div class="cost-name">ค่าใช้จ่ายรวม (est.)</div><div class="cost-value green" id="c-total">—</div><div class="cost-note">Claude Haiku ต่อเดือน</div></div>
-      <div class="cost-item"><div class="cost-name">Claude API Calls</div><div class="cost-value" id="c-calls">—</div><div class="cost-note">เฉพาะ signal ผ่าน filter</div></div>
+      <div class="cost-item"><div class="cost-name">TP-family rate</div><div class="cost-value green" id="c-total">—</div><div class="cost-note">TP1 / TP2 / TP3 grouped</div></div>
+      <div class="cost-item"><div class="cost-name">Pattern Memory</div><div class="cost-value" id="c-calls">—</div><div class="cost-note">research-backed patterns</div></div>
       <div class="cost-item"><div class="cost-name">Filter Rate</div><div class="cost-value yellow" id="c-filter">—</div><div class="cost-note">% scan ที่ถูก skip</div></div>
-      <div class="cost-item"><div class="cost-name">Win Rate</div><div class="cost-value" id="c-winrate">—</div><div class="cost-note">จาก recheck สัญญาณ</div></div>
+      <div class="cost-item"><div class="cost-name">MISS_NO_FOLLOWTHROUGH</div><div class="cost-value" id="c-winrate">—</div><div class="cost-note">high-score setups that do not continue</div></div>
     </div>
   </div>
 
   <div class="card">
-    <div class="card-title">Monthly Cost Breakdown</div>
+    <div class="card-title">Beta Review Notes</div>
     <div id="cost-breakdown"></div>
   </div>
 
   <div class="card">
-    <div class="card-title">By Symbol</div>
+    <div class="card-title">Pattern Memory</div>
     <div id="cost-by-symbol"></div>
   </div>
 
@@ -1098,7 +1122,7 @@ function gateTierLabel(gate){
   if(gate.startsWith('TIER1')) return 'T1';
   if(gate.startsWith('TIER2')) return 'T2';
   if(gate.startsWith('TIER3') || gate.startsWith('SET2_PREFILTER') || gate.includes('LOW_LIQUIDITY')) return 'T3';
-  if(gate.startsWith('TIER4') || gate.startsWith('MANUAL_CLAUDE')) return 'T4';
+  if(gate.startsWith('TIER4') || gate.startsWith('MANUAL_BOT_REVIEW')) return 'T4';
   if(gate.startsWith('TIER5')) return 'T5';
   if(gate.startsWith('MANUAL')) return 'T3';
   return '—';
@@ -1122,7 +1146,7 @@ async function exportLog(format){
   statusEl.textContent = '⏳ กำลัง export...';
 
   try{
-    var url = `/api/export?days=${_exportDays}&format=${format}`;
+    var url = routePath(`/api/export?days=${_exportDays}&format=${format}`);
     var r = await fetch(url);
     if(!r.ok) throw new Error('Export failed: '+r.status);
 
@@ -1524,11 +1548,24 @@ function saveTG(){
   showToast('✅ Telegram saved');
 }
 
+function betaRouteMode(){
+  var p = (window.location && window.location.pathname) ? window.location.pathname : '';
+  return p.startsWith('/dashboard2');
+}
+
+function routePath(path){
+  if(!betaRouteMode()) return path;
+  if(path === '/health') return '/health-beta';
+  if(path.startsWith('/api/')) return path.replace('/api/', '/api-beta/');
+  return path;
+}
+
 // ── API FETCH ─────────────────────────────────────────────────
 async function apiFetch(path){
   try{
     // same-origin เมื่อ apiUrl ว่าง (HTTPS mode)
-    var url = S.apiUrl ? S.apiUrl+path : path;
+    var routed = routePath(path);
+    var url = S.apiUrl ? S.apiUrl+routed : routed;
     var r = await fetch(url, { credentials:'same-origin', cache:'no-store' });
     if(!r.ok){
       return { ok:false, _http_error:true, status:r.status, error_text:await r.text() };
@@ -1545,11 +1582,11 @@ async function checkServer(){
   var el = $('server-status');
   var cronEl = $('cron-status');
   if(r && r.status==='ok'){
-    el.textContent='● online'; el.style.color='var(--green)';
+    el.textContent='● online'; el.style.color='var(--blue)';
     if(cronEl){
       if(r.cron_running){
         cronEl.textContent = '⟳ cron on';
-        cronEl.style.color = 'var(--green)';
+        cronEl.style.color = 'var(--blue)';
         cronEl.title = r.cron_last_seen ? `last run: ${r.cron_last_seen}` : 'cron running';
       }else{
         cronEl.textContent = '⟳ cron stale';
@@ -2013,7 +2050,8 @@ async function quickAnalyze(symbol, direction){
   $('quick-result').style.display='none';
 
   try{
-    var url = (typeof S !== 'undefined' && S.apiUrl) ? S.apiUrl + '/api/analyze' : '/api/analyze';
+    var apiAnalyzePath = routePath('/api/analyze');
+    var url = (typeof S !== 'undefined' && S.apiUrl) ? S.apiUrl + apiAnalyzePath : apiAnalyzePath;
     var r = await fetch(url, {
       method:'POST',
       cache:'no-store',
@@ -2059,9 +2097,8 @@ function renderAIResult(sig, targetId){
   if(!el) return;
 
   var isLong = sig.direction === 'Long';
-  var conf = sig.conf || 0;
-  var botConf = sig.pre_conf != null ? sig.pre_conf : conf;
-  var aiConf = sig.ai_conf != null ? sig.ai_conf : (sig.claude_called ? conf : null);
+  var botConf = sig.t4_score != null ? sig.t4_score : (sig.pre_conf != null ? sig.pre_conf : (sig.conf || 0));
+  var conf = botConf || 0;
   var regime = sig.regime || '—';
   var strategy = sig.strategy_used || '—';
   var ind = sig.indicators || {};
@@ -2098,9 +2135,8 @@ function renderAIResult(sig, targetId){
     { label: 'Structure', value: trendAlignment, cls: trendAlignment === 'Aligned' ? 'confidence-good' : trendAlignment === 'Warning' ? 'confidence-bad' : 'confidence-warn' },
     { label: 'Momentum', value: momentumStrength, cls: momentumStrength === 'Strong' ? 'confidence-good' : momentumStrength === 'Moderate' ? 'confidence-warn' : 'confidence-bad' },
     { label: 'Volume', value: t15.vol_ratio ? `${t15.vol_ratio.toFixed(1)}x avg` : 'Neutral', cls: t15.vol_ratio >= 1.2 ? 'confidence-good' : t15.vol_ratio >= 0.8 ? 'confidence-warn' : 'confidence-bad' },
-    { label: 'Main score', value: `${conf}/100`, cls: conf >= 70 ? 'confidence-good' : conf >= 50 ? 'confidence-warn' : 'confidence-bad' },
-    { label: 'Bot pre-score', value: `${botConf}/100`, cls: botConf >= 70 ? 'confidence-good' : botConf >= 50 ? 'confidence-warn' : 'confidence-bad' },
-    { label: 'AI confirmation', value: aiConf != null ? `${aiVerdict} (${aiConf}/100)` : 'Not called', cls: aiConf != null ? (isTradeable ? 'confidence-good' : 'confidence-bad') : 'confidence-warn' },
+    { label: 'Bot score', value: `${conf}/100`, cls: conf >= 70 ? 'confidence-good' : conf >= 50 ? 'confidence-warn' : 'confidence-bad' },
+    { label: 'Bot review', value: sig.gate_path === 'TIER4_BOT_REVIEW' ? 'Rule-reviewed' : 'Bot-first decision', cls: sig.gate_path === 'TIER4_BOT_REVIEW' ? 'confidence-good' : 'confidence-warn' },
     { label: 'Side score', value: scoreBreakdown, cls: 'confidence-warn' },
   ];
 
@@ -2113,11 +2149,9 @@ function renderAIResult(sig, targetId){
             <div class="muted" style="margin-top:8px;font-size:11px">${sig.symbol || '—'} · ${strategy} · ${regime}</div>
           </div>
           <div class="signal-score">
-            <div class="score-label">Main Conf</div>
+            <div class="score-label">Bot Conf</div>
             <div class="score-value" style="color:${scoreColor}">${conf}</div>
-            <div class="muted" style="font-size:10px;text-align:right;margin-top:2px">
-              Bot ${botConf}%${aiConf != null ? ` · AI ${aiConf}%` : ''}
-            </div>
+            <div class="muted" style="font-size:10px;text-align:right;margin-top:2px">bot-only tuned score</div>
           </div>
         </div>
         <div class="signal-meta-grid">
@@ -2158,11 +2192,11 @@ function renderAIResult(sig, targetId){
           <div id="${targetId}-mtf"><div class="muted"><span class="spinner"></span> Loading multi-timeframe trend...</div></div>
         </div>
         <div class="verdict-block">
-          <div class="block-title">AI Verdict / Explanation</div>
+          <div class="block-title">Bot Verdict / Explanation</div>
           <div class="verdict-copy">
             <div style="margin-bottom:8px">${verdictBadge(aiVerdict)}</div>
             <div>${aiExplanation}</div>
-            <div class="muted" style="margin-top:10px;font-size:11px">Gate: ${sig.gate_path || '—'} · ${sig.claude_called ? 'Claude validated' : 'Bot-first auto decision'}</div>
+            <div class="muted" style="margin-top:10px;font-size:11px">Gate: ${sig.gate_path || '—'} · ${sig.gate_path === 'TIER4_BOT_REVIEW' ? 'Bot review decision' : 'Bot-first auto decision'}</div>
           </div>
         </div>
         <div class="confidence-block">
@@ -2254,12 +2288,11 @@ async function loadLog(){
     var preConfStr = s.pre_conf!=null ? `${s.pre_conf}%` : '—';
 
     // Conf cell — colour coded + show bot/claude pass clearly
-    var confVal = s.conf!=null?s.conf:0;
-    var botConfVal = s.pre_conf!=null ? s.pre_conf : confVal;
-    var aiConfVal = s.ai_conf!=null ? s.ai_conf : (s.claude_called ? confVal : null);
+    var botConfVal = s.t4_score!=null ? s.t4_score : (s.pre_conf!=null ? s.pre_conf : (s.conf!=null?s.conf:0));
+    var confVal = botConfVal;
     var confClr = confVal>=70?'var(--green)':confVal>=50?'var(--yellow)':'var(--red)';
-    var confCell = `<span class="muted" style="font-size:8px">Main</span><br><span style="font-family:var(--mono);font-weight:700;color:${confClr}">${confVal}</span>`;
-    var confSub = `Bot ${botConfVal}%${aiConfVal!=null ? `<br>AI ${aiConfVal}%` : ''}`;
+    var confCell = `<span class="muted" style="font-size:8px">Bot</span><br><span style="font-family:var(--mono);font-weight:700;color:${confClr}">${confVal}</span>`;
+    var confSub = `${s.gate_path==='TIER4_BOT_REVIEW' ? 'reviewed' : 'bot-first'}`;
 
     // BUG-12 FIX: Reason column — compact badge, click to see full
     var reasonText = s.reject_reason || s.reason || '';
@@ -2456,8 +2489,8 @@ async function loadRecheck(){
         <td><span class="badge ${x.direction==='Long'?'b-long':'b-short'}" style="font-size:10px">${x.direction||'—'}</span></td>
         <td>${verdictBadge(x.verdict)}</td>
         <td style="text-align:center">
-          <span style="font-family:var(--mono);font-weight:700;color:${(x.conf||0)>=70?'var(--green)':(x.conf||0)>=50?'var(--yellow)':'var(--red)'}">${x.conf!=null?x.conf:'—'}</span>
-          <br><span class="muted" style="font-size:9px">${x.pre_conf!=null?x.pre_conf+'%':'—'}</span>
+          <span style="font-family:var(--mono);font-weight:700;color:${((x.t4_score!=null?x.t4_score:(x.pre_conf!=null?x.pre_conf:x.conf))||0)>=70?'var(--green)':((x.t4_score!=null?x.t4_score:(x.pre_conf!=null?x.pre_conf:x.conf))||0)>=50?'var(--yellow)':'var(--red)'}">${x.t4_score!=null?x.t4_score:(x.pre_conf!=null?x.pre_conf:(x.conf!=null?x.conf:'—'))}</span>
+          <br><span class="muted" style="font-size:9px">bot</span>
         </td>
         <td>${fmt(x.entry)}</td>
         <td>${x.tp1!=null?fmt(x.tp1):'—'}</td>
@@ -2475,55 +2508,34 @@ async function loadStats(){
   var r = await apiFetch('/api/stats');
   if(!r){ document.querySelectorAll('[id^=c-]').forEach(e=>e.textContent='Error'); return; }
 
-  // คำนวณ monthly projection
-  // สมมุติรัน 30 วัน, สแกน 3 symbols ทุก 30 นาที = 48 ครั้ง/วัน/symbol
-  var scansPerDay   = (24*60/30) * 3;   // = 144 scans/day
-  var filterRate    = r.filter_rate/100;
-  var claudePerDay  = scansPerDay * (1-filterRate);
-  var claudePerMonth= claudePerDay * 30;
-
-  // Haiku pricing: $0.80/1M input (300 tok avg), $4/1M output (200 tok avg)
-  var costPerCall   = (300/1e6*0.80) + (200/1e6*4.0);
-  var monthlyUSD    = claudePerMonth * costPerCall;
-  var monthlyTHB    = monthlyUSD * 33;
-
-  $('c-total').textContent   = `$${monthlyUSD.toFixed(2)} (~฿${Math.round(monthlyTHB)})`;
-  $('c-calls').textContent   = r.claude_called || 0;
+  $('c-total').textContent   = r.tp_family_rate!=null ? `${r.tp_family_rate}%` : '—';
+  $('c-calls').textContent   = r.pattern_memory_count || 0;
   $('c-filter').textContent  = (r.filter_rate||0)+'%';
-  $('c-winrate').textContent = r.win_rate!=null ? r.win_rate+'%' : '—';
+  $('c-winrate').textContent = r.miss_no_followthrough || 0;
 
   $('cost-breakdown').innerHTML = `
     <div style="font-size:12px;line-height:2;color:var(--text)">
       <div class="flex-between" style="border-bottom:1px solid var(--border);padding:6px 0">
-        <span class="muted">Model</span><span class="mono">Claude Haiku (claude-haiku-4-5-20251001)</span>
+        <span class="muted">Mode</span><span class="mono">Bot-only tuned beta review</span>
       </div>
       <div class="flex-between" style="border-bottom:1px solid var(--border);padding:6px 0">
-        <span class="muted">Input price</span><span class="mono">$0.80 / 1M tokens</span>
+        <span class="muted">TP-family</span><span class="mono">${r.tp_family||0} grouped hits</span>
       </div>
       <div class="flex-between" style="border-bottom:1px solid var(--border);padding:6px 0">
-        <span class="muted">Output price</span><span class="mono">$4.00 / 1M tokens</span>
+        <span class="muted">SL-family</span><span class="mono">${r.sl_family||0}</span>
       </div>
       <div class="flex-between" style="border-bottom:1px solid var(--border);padding:6px 0">
-        <span class="muted">Avg tokens/call</span><span class="mono">~300 input + 200 output</span>
+        <span class="muted">MISS 4h</span><span class="mono">${r.miss_4h||0}</span>
       </div>
       <div class="flex-between" style="border-bottom:1px solid var(--border);padding:6px 0">
-        <span class="muted">Cost per call</span><span class="mono">~$${costPerCall.toFixed(5)}</span>
+        <span class="muted">WAIT 4h</span><span class="mono">${r.wait_4h||0}</span>
       </div>
       <div class="flex-between" style="border-bottom:1px solid var(--border);padding:6px 0">
-        <span class="muted">Scans/day (3 symbols × 48)</span><span class="mono">${Math.round(scansPerDay)}</span>
-      </div>
-      <div class="flex-between" style="border-bottom:1px solid var(--border);padding:6px 0">
-        <span class="muted">Filter rate (skip)</span><span class="mono yellow">${r.filter_rate||0}%</span>
-      </div>
-      <div class="flex-between" style="border-bottom:1px solid var(--border);padding:6px 0">
-        <span class="muted">Claude calls/day (est.)</span><span class="mono">${claudePerDay.toFixed(0)}</span>
-      </div>
-      <div class="flex-between" style="border-bottom:1px solid var(--border);padding:6px 0">
-        <span class="muted">Claude calls/month (est.)</span><span class="mono">${claudePerMonth.toFixed(0)}</span>
+        <span class="muted">MISS_NO_FOLLOWTHROUGH</span><span class="mono">${r.miss_no_followthrough||0}</span>
       </div>
       <div class="flex-between" style="padding:8px 0;font-weight:700">
-        <span>Monthly Claude Cost (est.)</span>
-        <span class="mono green">$${monthlyUSD.toFixed(2)} / ฿${Math.round(monthlyTHB)}</span>
+        <span>Pattern memory loaded</span>
+        <span class="mono green">${r.pattern_memory_count||0}</span>
       </div>
     </div>`;
 
@@ -2550,11 +2562,16 @@ async function loadOverviewStats(){
   $('s-total').textContent   = r.total_signals || 0;
   $('s-today').textContent   = r.today_signals  || 0;
   $('s-today-inline').textContent = r.today_signals || 0;
-  $('s-claude').textContent  = r.claude_called  || 0;
+  $('s-tpfamily').textContent  = r.tp_family  || 0;
+  $('s-tpfamily-rate').textContent = r.tp_family_rate!=null ? r.tp_family_rate+'%' : '—';
   $('s-winrate').textContent = r.win_rate!=null ? r.win_rate+'%' : '—';
   $('s-wins').textContent    = r.wins   || 0;
   $('s-losses').textContent  = r.losses || 0;
   $('s-approved').textContent= r.today_approved || 0;
+  if($('beta-tp-family')) $('beta-tp-family').textContent = r.tp_family || 0;
+  if($('beta-tp-family-sub')) $('beta-tp-family-sub').textContent = `${r.tp_family_rate!=null ? r.tp_family_rate+'%' : '—'} resolved TP-family rate`;
+  if($('beta-miss-follow')) $('beta-miss-follow').textContent = r.miss_no_followthrough || 0;
+  if($('beta-pattern-count')) $('beta-pattern-count').textContent = r.pattern_memory_count || 0;
 
   // Win rate colour
   var wr = r.win_rate;
@@ -2579,6 +2596,28 @@ async function loadOverviewStats(){
   }
 }
 
+async function loadBetaMemory(){
+  var r = await apiFetch('/api/beta-memory');
+  if(!r) return;
+  var html = (r.top_patterns||[]).slice(0,6).map(function(p){
+    var tp = p.tp_rate!=null ? (Math.round(p.tp_rate*1000)/10)+'%' : '—';
+    var miss = p.miss_rate!=null ? (Math.round(p.miss_rate*1000)/10)+'%' : '—';
+    var parts = String(p.pattern_key_v1||'').split('|');
+    var strategy = parts[0] || '—';
+    var regime = parts[1] || '—';
+    var direction = parts[2] || '—';
+    var score = parts[3] || '—';
+    var context = parts[4] || '—';
+    var mtf = parts[5] || '—';
+    return `<div style="padding:8px 0;border-top:1px solid var(--border)">
+      <div style="font-size:11px;color:var(--text);font-weight:700">${strategy} · ${regime} · ${direction}</div>
+      <div class="muted" style="font-size:10px;margin-top:3px">bot score ${score} · context ${context} · MTF ${mtf}</div>
+      <div class="muted" style="font-size:10px;margin-top:4px">sample ${p.sample_size||0} · TP hit ${tp} · MISS ${miss}</div>
+    </div>`;
+  }).join('');
+  if($('beta-top-patterns')) $('beta-top-patterns').innerHTML = html || '<div class="muted">No pattern memory loaded.</div>';
+}
+
 // ── INIT ──────────────────────────────────────────────────────
 async function init(){
   loadSettings();
@@ -2590,6 +2629,8 @@ async function init(){
 
   // BUG-14 FIX: ใช้ loadOverviewStats แทน inline stats call
   await loadOverviewStats();
+  await loadBetaMemory();
+  await loadStats();
 
   // Auto refresh trend + server every 30s
   setInterval(async()=>{
@@ -2600,6 +2641,7 @@ async function init(){
   // BUG-14 FIX: Auto refresh overview stats ทุก 5 นาที
   setInterval(async()=>{
     await loadOverviewStats();
+    await loadBetaMemory();
     // ถ้า tab log active ให้ refresh ด้วย
     if($('pane-log') && $('pane-log').classList.contains('active')){
       loadLog();

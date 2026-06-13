@@ -57,6 +57,10 @@ except ImportError:
     import config as cfg
 
 TZ_THAI = timezone(timedelta(hours=7))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PATTERN_MEMORY_PATH = os.path.join(BASE_DIR, "data", "pattern_memory_beta.json")
+PATTERN_MEMORY_SUMMARY_PATH = os.path.join(BASE_DIR, "data", "beta_research_summary.json")
+_PATTERN_MEMORY_CACHE = None
 
 def now_thai():
     return datetime.now(TZ_THAI)
@@ -81,6 +85,115 @@ def http_post(url, headers, body, timeout=40):
     except Exception as e:
         log(f"HTTP POST: {e}")
         return None
+
+def sfloat(v):
+    try:
+        if v in (None, "", "—"):
+            return None
+        return float(str(v).replace(",", ""))
+    except Exception:
+        return None
+
+def clamp(v, lo=0, hi=95):
+    return max(lo, min(hi, v))
+
+def conf_bucket(score):
+    score = sfloat(score)
+    if score is None:
+        return "unknown"
+    if score < 25: return "00_24"
+    if score < 35: return "25_34"
+    if score < 45: return "35_44"
+    if score < 55: return "45_54"
+    if score < 65: return "55_64"
+    if score < 75: return "65_74"
+    if score < 85: return "75_84"
+    return "85_plus"
+
+def ctx_bucket(ctx_bonus):
+    ctx_bonus = sfloat(ctx_bonus)
+    if ctx_bonus is None or ctx_bonus == 0:
+        return "neutral"
+    return "pos" if ctx_bonus > 0 else "neg"
+
+def tf_bias(tf):
+    tf = tf or {}
+    e_s = sfloat(tf.get("ema_short"))
+    e_m = sfloat(tf.get("ema_mid"))
+    macd = sfloat(tf.get("macd_hist"))
+    rsi = sfloat(tf.get("rsi"))
+    if e_s is not None and e_m is not None:
+        if e_s > e_m: return "BULLISH"
+        if e_s < e_m: return "BEARISH"
+    if macd is not None:
+        if macd > 0: return "BULLISH"
+        if macd < 0: return "BEARISH"
+    if rsi is not None:
+        if rsi >= 55: return "BULLISH"
+        if rsi <= 45: return "BEARISH"
+    return "NEUTRAL"
+
+def mtf_alignment_bucket(direction, t15=None, t1h=None, t2h=None, t4h=None):
+    want = "BULLISH" if direction == "Long" else "BEARISH"
+    checks = [tf_bias(t15), tf_bias(t1h), tf_bias(t2h), tf_bias(t4h)]
+    total = sum(1 for b in checks if b != "NEUTRAL")
+    aligned = sum(1 for b in checks if b == want)
+    ratio = (aligned / total) if total else 0
+    bucket = "high" if ratio >= 0.75 else "mid" if ratio >= 0.5 else "low"
+    conflict = any(b not in ("NEUTRAL", want) for b in checks if b)
+    return bucket, aligned, total, conflict
+
+def load_pattern_memory():
+    global _PATTERN_MEMORY_CACHE
+    if _PATTERN_MEMORY_CACHE is not None:
+        return _PATTERN_MEMORY_CACHE
+    memory = {"patterns": {}, "summary": {}}
+    try:
+        if os.path.exists(PATTERN_MEMORY_PATH):
+            with open(PATTERN_MEMORY_PATH, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                memory["patterns"] = payload
+        if os.path.exists(PATTERN_MEMORY_SUMMARY_PATH):
+            with open(PATTERN_MEMORY_SUMMARY_PATH, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                memory["summary"] = payload
+    except Exception as e:
+        log(f"⚠️ pattern_memory load failed: {e}")
+    _PATTERN_MEMORY_CACHE = memory
+    return _PATTERN_MEMORY_CACHE
+
+def build_pattern_key(strategy, regime, direction, score, ctx_bonus, mtf_bucket):
+    return "|".join([
+        str(strategy or "na"),
+        str(regime or "na"),
+        str(direction or "na"),
+        conf_bucket(score),
+        ctx_bucket(ctx_bonus),
+        str(mtf_bucket or "na"),
+    ])
+
+def pattern_memory_adjustment(pattern_key):
+    memory = load_pattern_memory().get("patterns", {})
+    entry = memory.get(pattern_key) or {}
+    sample = int(entry.get("sample_size") or 0)
+    tp_rate = sfloat(entry.get("tp_rate")) or 0
+    miss_rate = sfloat(entry.get("miss_rate")) or 0
+    sl_rate = sfloat(entry.get("sl_rate")) or 0
+    adjust = 0
+    reasons = []
+    if sample >= 20:
+        if tp_rate < 0.20 and miss_rate > 0.60:
+            adjust -= 12
+            reasons.append(f"pattern weak tp={tp_rate:.2f} miss={miss_rate:.2f}")
+        elif tp_rate > 0.45 and miss_rate < 0.35:
+            adjust += 6
+            reasons.append(f"pattern strong tp={tp_rate:.2f}")
+        elif sl_rate > 0.15:
+            adjust -= 6
+            reasons.append(f"pattern sl risk={sl_rate:.2f}")
+    return adjust, entry, reasons
 
 def classify_runtime_error(exc):
     msg = str(exc or "")
@@ -1398,6 +1511,42 @@ def _tg_send(token, chat_id, msg):
         log(f"Telegram send error: {e}")
         return False
 
+def _telegram_targets():
+    targets = []
+
+    def add(token, chat_id, label):
+        token = (token or "").strip()
+        chat_id = str(chat_id or "").strip()
+        if not token or not chat_id or "YOUR" in token:
+            return
+        pair = (token, chat_id, label)
+        if pair not in targets:
+            targets.append(pair)
+
+    add(
+        getattr(cfg, "TELEGRAM_TOKEN", None) or getattr(cfg, "TG_BOT_TOKEN", "") or os.getenv("TELEGRAM_TOKEN", ""),
+        getattr(cfg, "TELEGRAM_CHAT_ID", None) or getattr(cfg, "TG_CHAT_ID", "") or os.getenv("TELEGRAM_CHAT_ID", ""),
+        "primary",
+    )
+    add(
+        os.getenv("TELEGRAM_TOKEN2", "") or os.getenv("TELEGRAM_TOKEN", ""),
+        os.getenv("TELEGRAM_CHAT2_ID", ""),
+        "secondary",
+    )
+    return targets
+
+def _tg_send_all(msg):
+    targets = _telegram_targets()
+    if not targets:
+        log("  Telegram skipped: no configured targets")
+        return False
+    sent_any = False
+    for token, chat_id, label in targets:
+        ok = _tg_send(token, chat_id, msg)
+        log(f"  Telegram {label}: {'sent' if ok else 'failed'}")
+        sent_any = sent_any or ok
+    return sent_any
+
 def _fmt_regime(regime): return regime or "—"
 def _tg_escape(value, limit=None):
     text = "" if value is None else str(value)
@@ -1419,31 +1568,39 @@ def _tg_level_line(icon, label, value, entry, direction, extra=""):
     details = " ".join([x for x in [pct, suffix.strip()] if x]).strip()
     return f"{icon} {label}: {rendered}" + (f" {details}" if details else "") + "\n"
 def _tg_header(title, badge, subtitle=None):
-    msg = f"{title}\n⚡ *{badge}*\n"
+    msg = f"🔷 *BOT Codex Trade*\n{title}\n🔹 *{badge}*\n"
     if subtitle: msg += f"_{subtitle}_\n"
     msg += "━━━━━━\n\n"
     return msg
+
+def _bot_conf_value(sig):
+    for key in ("t4_score", "pre_conf", "conf"):
+        val = sig.get(key)
+        if val is not None:
+            try:
+                return int(val)
+            except Exception:
+                pass
+    return "—"
 def _has_required_trade_fields(sig):
     return bool(sig.get("symbol") and sig.get("direction") and sig.get("entry")
                 and sig.get("tp1") and (sig.get("hsl") or sig.get("ssl")))
 
 def send_telegram(sig):
-    token   = getattr(cfg, "TELEGRAM_TOKEN", None) or getattr(cfg, "TG_BOT_TOKEN", "")
-    chat_id = getattr(cfg, "TELEGRAM_CHAT_ID", None) or getattr(cfg, "TG_CHAT_ID", "")
-    if not token or not chat_id or "YOUR" in token:
+    if not _telegram_targets():
         log("  Telegram skipped: token/chat_id not configured"); return False
     verdict = sig.get("verdict", "")
     if not _has_required_trade_fields(sig):
         log(f"  Telegram blocked: missing trade levels for verdict={verdict}"); return False
     if verdict == "REJECTED":
         if (sig.get("conf") or 0) < 50: return False
-        return _send_telegram_rejected(sig, token, chat_id)
+        return _send_telegram_rejected(sig)
     if verdict not in ("APPROVED", "WEAK APPROVAL"):
         return False
     sym = sig["symbol"].replace("USDT", "")
     direction = sig["direction"]
     strat = sig.get("strategy_used", "—")
-    title = ("🟢 LONG" if direction == "Long" else "🔴 SHORT") + f" {sym}/USDT | Conf: {sig.get('conf', '—')}/100"
+    title = ("🟦 LONG" if direction == "Long" else "🔵 SHORT") + f" {sym}/USDT | Bot Conf: {_bot_conf_value(sig)}/100"
     badge = "APPROVED SIGNAL" if verdict == "APPROVED" else "WEAK APPROVAL"
     subtitle = "trade ได้ แต่ควรลด size หรือรอ confirmation เพิ่ม" if verdict == "WEAK APPROVAL" else None
     ind = sig.get("indicators", {}); t15 = ind.get("15m", {})
@@ -1469,11 +1626,11 @@ def send_telegram(sig):
         msg += f"\n⚠️ ความเสี่ยง: {_tg_escape(sig['risk_flags'][0], 180)}\n"
     if sig.get("reason"):
         msg += f"\n💬 {_tg_escape(sig['reason'], 260)}\n"
-    return _tg_send(token, chat_id, msg)
+    return _tg_send_all(msg)
 
-def _send_telegram_rejected(sig, token, chat_id):
+def _send_telegram_rejected(sig):
     sym = sig["symbol"].replace("USDT", ""); direction = sig["direction"]
-    title = ("🟢 LONG" if direction == "Long" else "🔴 SHORT") + f" {sym}/USDT | Conf: {sig.get('conf', '—')}/100"
+    title = ("🟦 LONG" if direction == "Long" else "🔵 SHORT") + f" {sym}/USDT | Bot Conf: {_bot_conf_value(sig)}/100"
     ind = sig.get("indicators", {}); t15 = ind.get("15m", {})
     fr  = sig.get("funding_rate") or (sig.get("indicators") or {}).get("funding_rate")
     reason = sig.get("reject_reason") or sig.get("reason") or "Rejected by validation"
@@ -1492,7 +1649,7 @@ def _send_telegram_rejected(sig, token, chat_id):
     if t15.get("vol_ratio"): msg += f"📦 Volume: {t15['vol_ratio']:.1f}x avg\n"
     if fr is not None: msg += f"💸 Funding: {fr:+.4f}%\n"
     msg += f"\n💬 {_tg_escape(reason, 320)}\n\n━━━━━━"
-    return _tg_send(token, chat_id, msg)
+    return _tg_send_all(msg)
 
 def should_notify(verdict):
     n = getattr(cfg, "NOTIFY_ON", "approved_weak")
@@ -1539,11 +1696,12 @@ def bot_gate_reason(pre_conf, passed=None, claude_gate=None):
         filter_text = ""
         if passed is not None:
             filter_text = ", filter passed" if passed else ", filter not passed"
-        return f"Bot: pre_conf={pre_conf}% below Claude gate {gate}%{filter_text}"
-    return f"Bot: pre_conf={pre_conf}% blocked before Claude validation"
+        return f"Bot: pre_conf={pre_conf}% below review gate {gate}%{filter_text}"
+    return f"Bot: pre_conf={pre_conf}% blocked before bot review"
 
 def main_score_note(verdict, conf, pre_conf=None, claude_called=False, gate_path=""):
     gate = str(gate_path or "")
+    if gate.startswith("TIER4_BOT_REVIEW"): return "Main score=bot review score"
     if claude_called and gate.startswith("TIER4"): return "Main score=AI confidence"
     if claude_called and gate.startswith("MANUAL"): return "Main score=bot pre-score; AI score stored separately"
     if gate.startswith("TIER5"): return "Main score=bot auto score"
@@ -1615,6 +1773,176 @@ def should_skip_claude(direction, rb_data, tf_1h, tf_4h, pre_conf, market_ctx=No
 
     return False, ""
 
+def t4_bot_review(symbol, direction, strategy, regime, pre_conf, m, tf_bk, rb_data):
+    t15 = m.get("tf_15m") or {}
+    t1h = m.get("tf_1h") or {}
+    t2h = m.get("tf_2h") or {}
+    t4h = m.get("tf_4h") or {}
+    ctx_bonus = m.get("ctx_bonus", 0) or 0
+    vol_ratio = sfloat(t15.get("vol_ratio"))
+    rsi_15 = sfloat(t15.get("rsi"))
+    rsi_1h = sfloat(t1h.get("rsi"))
+    macd_15 = sfloat(t15.get("macd_hist"))
+    macd_1h = sfloat(t1h.get("macd_hist"))
+    macd_4h = sfloat(t4h.get("macd_hist"))
+    mtf_bucket, mtf_aligned, mtf_total, mtf_conflict = mtf_alignment_bucket(direction, t15=t15, t1h=t1h, t2h=t2h, t4h=t4h)
+    pattern_key = build_pattern_key(strategy, regime, direction, pre_conf, ctx_bonus, mtf_bucket)
+    pattern_adjust, pattern_entry, pattern_reasons = pattern_memory_adjustment(pattern_key)
+    reasons = []
+    risk_flags = []
+
+    # 1. Hard blocks
+    if strategy == "TREND_FOLLOW" and regime == "TRENDING" and direction == "Long" and ctx_bucket(ctx_bonus) == "neg":
+        if not ((macd_15 or 0) > 10 and (macd_1h or 0) > 0):
+            return {
+                "verdict": "NO TRADE",
+                "conf": clamp((pre_conf or 0) - 10),
+                "levels": {"reason": "T4 Bot Review: negative market context without momentum support", "reason_code": "T4_NEG_CTX_BLOCK"},
+                "review": {
+                    "decision_source": "TIER4_BOT_REVIEW",
+                    "t4_score": clamp((pre_conf or 0) - 10),
+                    "trend_score": 0,
+                    "momentum_score": 0,
+                    "structure_score": 0,
+                    "context_score": -8,
+                    "risk_score": -4,
+                    "pattern_adjustment_score": pattern_adjust,
+                    "pattern_key_v1": pattern_key,
+                    "pattern_memory": pattern_entry,
+                },
+            }
+    if vol_ratio is not None and vol_ratio < 0.25:
+        return {
+            "verdict": "NO TRADE",
+            "conf": clamp((pre_conf or 0) - 8),
+            "levels": {"reason": f"T4 Bot Review: vol_ratio_15m={vol_ratio:.2f} too low for follow-through", "reason_code": "T4_LOW_VOL_BLOCK"},
+            "review": {
+                "decision_source": "TIER4_BOT_REVIEW",
+                "t4_score": clamp((pre_conf or 0) - 8),
+                "trend_score": 0,
+                "momentum_score": 0,
+                "structure_score": 0,
+                "context_score": 0,
+                "risk_score": -8,
+                "pattern_adjustment_score": pattern_adjust,
+                "pattern_key_v1": pattern_key,
+                "pattern_memory": pattern_entry,
+            },
+        }
+    if mtf_conflict and (pre_conf or 0) >= 75:
+        return {
+            "verdict": "NO TRADE",
+            "conf": clamp((pre_conf or 0) - 12),
+            "levels": {"reason": "T4 Bot Review: high score but timeframe conflict", "reason_code": "T4_MTF_CONFLICT_BLOCK"},
+            "review": {
+                "decision_source": "TIER4_BOT_REVIEW",
+                "t4_score": clamp((pre_conf or 0) - 12),
+                "trend_score": 0,
+                "momentum_score": 0,
+                "structure_score": 0,
+                "context_score": 0,
+                "risk_score": -6,
+                "pattern_adjustment_score": pattern_adjust,
+                "pattern_key_v1": pattern_key,
+                "pattern_memory": pattern_entry,
+            },
+        }
+
+    # 2. Subscores
+    trend_score = 0
+    if mtf_aligned >= 3: trend_score += 18
+    elif mtf_aligned >= 2: trend_score += 12
+    elif mtf_aligned >= 1: trend_score += 6
+    if direction == "Long" and (macd_4h or 0) > 0: trend_score += 6
+    if direction == "Short" and (macd_4h or 0) < 0: trend_score += 6
+
+    momentum_hits = 0
+    if direction == "Long":
+        momentum_hits += 1 if (macd_15 or -999) > 10 else 0
+        momentum_hits += 1 if (macd_1h or -999) > 0 else 0
+        momentum_hits += 1 if (rsi_15 or 0) >= 55 and (rsi_1h or 0) >= 50 else 0
+    else:
+        momentum_hits += 1 if (macd_15 or 999) < -10 else 0
+        momentum_hits += 1 if (macd_1h or 999) < 0 else 0
+        momentum_hits += 1 if (rsi_15 or 100) <= 45 and (rsi_1h or 100) <= 50 else 0
+    momentum_score = 6 + momentum_hits * 6
+    if momentum_hits < 2:
+        risk_flags.append("WEAK_FOLLOW_THROUGH")
+        reasons.append(f"follow-through gate {momentum_hits}/3")
+        momentum_score -= 6
+
+    structure_score = 10
+    if strategy == "TREND_FOLLOW" and direction == "Long" and (rsi_1h or 0) > 70:
+        structure_score -= 4
+        risk_flags.append("HTF_OVERBOUGHT_LONG")
+    if strategy == "TREND_FOLLOW" and direction == "Short" and (rsi_1h or 100) < 30:
+        structure_score -= 4
+        risk_flags.append("HTF_OVERSOLD_SHORT")
+    if tf_bk.get("bias_fallback"):
+        structure_score -= 2
+        risk_flags.append("BIAS_FALLBACK")
+
+    context_score = 10 + max(-8, min(6, int(ctx_bonus * 2)))
+    risk_score = 10
+    if vol_ratio is not None and vol_ratio < 0.75:
+        risk_score -= 3
+        risk_flags.append("SOFT_LOW_VOLUME")
+    if vol_ratio is not None and vol_ratio >= 1.5:
+        risk_score += 2
+    if mtf_bucket == "mid":
+        risk_score -= 2
+    elif mtf_bucket == "low":
+        risk_score -= 5
+
+    raw_score = int(round(
+        0.25 * (pre_conf or 0)
+        + trend_score
+        + momentum_score
+        + structure_score
+        + context_score
+        + risk_score
+        + pattern_adjust
+    ))
+    t4_score = clamp(raw_score)
+
+    if momentum_hits >= 2:
+        reasons.append(f"follow-through gate {momentum_hits}/3 passed")
+    reasons.extend(pattern_reasons)
+    reasons.append(f"pattern={pattern_key}")
+
+    if t4_score >= 72:
+        verdict = "APPROVED"
+    elif t4_score >= 62:
+        verdict = "WEAK APPROVAL"
+    elif momentum_hits >= 2 and t4_score >= 55:
+        verdict = "WEAK SIGNAL"
+    else:
+        verdict = "NO TRADE"
+
+    levels = calc_fallback_levels(m["price"], direction, m.get("atr", 0))
+    levels["entry"] = str(round(m["price"], 2))
+    levels["reason"] = "T4 Bot Review: " + " | ".join(reasons)
+    levels["reason_code"] = "T4_BOT_REVIEW"
+    levels["risk_flags"] = risk_flags
+    levels["_beta_review"] = {
+        "decision_source": "TIER4_BOT_REVIEW",
+        "t4_score": t4_score,
+        "trend_score": trend_score,
+        "momentum_score": momentum_score,
+        "structure_score": structure_score,
+        "context_score": context_score,
+        "risk_score": risk_score,
+        "pattern_adjustment_score": pattern_adjust,
+        "pattern_key_v1": pattern_key,
+        "pattern_memory": pattern_entry,
+    }
+    return {
+        "verdict": verdict,
+        "conf": t4_score,
+        "levels": levels,
+        "review": levels["_beta_review"],
+    }
+
 # ═══════════════════════════════════════════════════════════
 # BUILD SIGNAL (updated for SET3 — strategy_used=REBOUND_HTF)
 # ═══════════════════════════════════════════════════════════
@@ -1642,6 +1970,7 @@ def build_signal(symbol, direction, m, verdict, conf, levels,
     score_note  = main_score_note(verdict, conf, pre_conf=pre_conf, claude_called=claude_called, gate_path=gate_path)
     reason      = with_main_score_note(levels.get("reason") or "", score_note)
     reject_reason = "" if is_tradeable else with_main_score_note(levels.get("reason") or verdict, score_note)
+    beta_review = levels.get("_beta_review") or {}
 
     return {
         "id":            f"{symbol}_{now_thai().strftime('%Y%m%d_%H%M')}",
@@ -1696,6 +2025,16 @@ def build_signal(symbol, direction, m, verdict, conf, levels,
         "risk_flags":      levels.get("risk_flags", []),
         "reject_reason":   reject_reason,
         "ai_text":         ai_text,
+        "decision_source": beta_review.get("decision_source") or ("TIER4_BOT_REVIEW" if gate_path.startswith("TIER4_BOT_REVIEW") else gate_path or "UNKNOWN"),
+        "t4_score":        beta_review.get("t4_score"),
+        "trend_score":     beta_review.get("trend_score"),
+        "momentum_score":  beta_review.get("momentum_score"),
+        "structure_score": beta_review.get("structure_score"),
+        "context_score":   beta_review.get("context_score"),
+        "risk_score":      beta_review.get("risk_score"),
+        "pattern_adjustment_score": beta_review.get("pattern_adjustment_score"),
+        "pattern_key_v1":  beta_review.get("pattern_key_v1"),
+        "pattern_memory":  beta_review.get("pattern_memory"),
         "recheck":         None,
     }
 
@@ -1857,6 +2196,7 @@ def main():
 
         m["ctx_bonus"]   = ctx_bonus
         m["ctx_reasons"] = ctx_reasons
+        m["ctx_aligned"] = ctx_aligned
 
         # ── 5-Tier Gate ───────────────────────────────────────────
         def _base_log(verdict_val, gate_path_val, claude_called=False):
@@ -1938,14 +2278,14 @@ def main():
                 log(f"  🤖 TIER3: pre_conf={pre_conf}% + filter fail → NO TRADE")
                 rec = _base_log("NO TRADE", "TIER3_BOT_REJECT")
                 rec["reject_reason"] = with_main_score_note(
-                    f"Bot: pre_conf={pre_conf}% below Claude gate, filter not passed",
+                    f"Bot: pre_conf={pre_conf}% below review gate, filter not passed",
                     rec.get("main_score_note"),
                 )
                 logs.insert(0, rec)
                 time.sleep(1); continue
             else:
                 skipped += 1
-                log(f"  📋 TIER3: pre_conf={pre_conf}% passed filter but below Claude gate → WEAK SIGNAL")
+                log(f"  📋 TIER3: pre_conf={pre_conf}% passed filter but below review gate → WEAK SIGNAL")
                 logs.insert(0, _base_log("WEAK SIGNAL", "TIER3_WEAK_PASSED"))
                 time.sleep(1); continue
 
@@ -2023,11 +2363,11 @@ def main():
                 log(f"  📱 Telegram: {'sent' if tg_sent else 'not sent'} (AUTO APPROVED)")
             time.sleep(1); continue
 
-        # Tier 4: Claude gate
+        # Tier 4: Bot Review gate
         effective_claude_min = cfg.CLAUDE_MIN_CONF
         if ctx_aligned and cfg.CTX_CLAUDE_GATE_REDUCTION > 0:
             effective_claude_min = cfg.CLAUDE_MIN_CONF - cfg.CTX_CLAUDE_GATE_REDUCTION
-            log(f"  📡 ctx_aligned=True → Claude gate {cfg.CLAUDE_MIN_CONF}→{effective_claude_min}%")
+            log(f"  📡 ctx_aligned=True → review gate {cfg.CLAUDE_MIN_CONF}→{effective_claude_min}%")
 
         if strategy in ("REBOUND", "REBOUND_HTF") and direction != "N/A":
             rb_ls5b = rb_data.get("long_score", 0)
@@ -2047,7 +2387,7 @@ def main():
                 effective_claude_min = min(effective_claude_min, cfg.REBOUND_TIER5B_GATE)
                 if effective_claude_min < gate_before:
                     log(f"  📈 TIER5-B: quality REBOUND ({direction} score={rb_sc5b} margin={rb_mg5b} htf={htf_mode5b}) "
-                        f"→ Claude gate {gate_before}→{effective_claude_min}%")
+                        f"→ review gate {gate_before}→{effective_claude_min}%")
 
         if pre_conf < effective_claude_min:
             skipped += 1
@@ -2068,31 +2408,20 @@ def main():
             logs.insert(0, rec)
             time.sleep(1); continue
 
-        log(f"  🤖 TIER4: pre_conf={pre_conf}% | dir={direction} | {strategy} → Claude"
+        log(f"  🤖 TIER4_BOT_REVIEW: pre_conf={pre_conf}% | dir={direction} | {strategy}"
             f"{' (ctx gate '+str(effective_claude_min)+'%)' if ctx_aligned else ''}")
         try:
-            summary  = build_summary(m, regime, strategy, tf_bk, rb_data, direction=direction)
-            ai_text  = call_claude(symbol, direction, strategy, summary)
-            verdict, conf, levels = parse_ai(ai_text)
+            review = t4_bot_review(symbol, direction, strategy, regime, pre_conf, m, tf_bk, rb_data)
+            verdict = review["verdict"]
+            conf = review["conf"]
+            levels = review["levels"]
+            ai_text = f"BOT_REVIEW:{conf}"
             claude_calls += 1
-
-            if not levels.get("entry"):
-                levels["entry"] = str(round(m["price"], 2))
-
-            if verdict in ("APPROVED", "WEAK APPROVAL"):
-                fallback = calc_fallback_levels(m["price"], direction, m.get("atr", 0))
-                for k in ("ssl","hsl","tp1","tp2","tp3"):
-                    if not levels.get(k): levels[k] = fallback[k]
-            elif (max(pre_conf, conf) or 0) >= 50:
-                fallback = calc_fallback_levels(m["price"], direction, m.get("atr", 0))
-                for k in ("ssl","hsl","tp1","tp2","tp3"):
-                    if not levels.get("suggested_"+k): levels["suggested_"+k] = fallback[k]
-                levels["suggested_entry"] = levels.get("entry") or str(round(m["price"], 2))
 
             sig = build_signal(symbol, direction, m, verdict, conf, levels,
                                ai_text, regime, regime_conf, regime_reasons,
                                strategy, filter_reason, tf_bk, rb_data,
-                               gate_path="TIER4_CLAUDE", pre_conf=pre_conf, claude_called=True)
+                               gate_path="TIER4_BOT_REVIEW", pre_conf=pre_conf, claude_called=False)
             log(f"  → {verdict} | Conf:{conf} | Entry:{fmt(sig.get('entry'))} | TP1:{fmt(sig.get('tp1'))} | SL:{fmt(sig.get('ssl'))}")
             logs.insert(0, sig)
 
@@ -2108,7 +2437,7 @@ def main():
                 "time": th_now.isoformat(), "time_thai": th_now.strftime('%Y-%m-%d %H:%M TH'),
                 "symbol": symbol, "price": m["price"], "direction": direction,
                 "bot_version": cfg.BOT_VERSION, "regime": regime, "strategy_used": strategy,
-                "gate_path": "TIER4_CLAUDE", "pre_conf": pre_conf, "claude_called": True,
+                "gate_path": "TIER4_BOT_REVIEW", "pre_conf": pre_conf, "claude_called": False,
                 "conf": 0, "verdict": "ERROR",
                 "error_type": error_type, "error_msg": str(e),
                 "reject_reason": f"ERROR[{error_type}]: {error_desc}",
@@ -2118,7 +2447,7 @@ def main():
 
     save_log(logs)
     log(f"\n{'='*60}")
-    log(f"✅ Done — Claude calls: {claude_calls} | Skipped: {skipped}")
+    log(f"✅ Done — T4 reviews: {claude_calls} | Skipped: {skipped}")
     log(f"{'='*60}")
 
 if __name__ == "__main__":

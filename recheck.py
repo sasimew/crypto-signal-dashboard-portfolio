@@ -201,7 +201,7 @@ def check_day_extreme(sig, fallback_price, candles=None, hit_candles=None):
 
     # Hit label is evaluated on the 4h window. Hard SL overrides outcome.
     _, _, hit_level, _, _ = check(sig, ref_price, hit_candles if hit_candles is not None else candles)
-    hit_label = recheck_label(outcome, hit_level)
+    hit_label = recheck_label(outcome, hit_level, finalized=True)
     if hit_label in ("TP1", "TP2", "TP3", "S-SL", "H-SL"):
         level = f"{level}; Hit {hit_label}"
     if hit_label in ("H-SL", "S-SL"):
@@ -250,16 +250,16 @@ def classify_recheck_outcome(sig, outcome, level):
         return outcome, "trade_result", None
     return outcome, "rejected_validation", outcome
 
-def recheck_label(outcome, level):
+def recheck_label(outcome, level, finalized=True):
     text = f"{outcome or ''} {level or ''}"
     if "UNKNOWN" in text or str(outcome).strip() == "0":
-        return "WAIT"
+        return "MISS" if finalized else "WAIT"
     for label in ("TP3", "TP2", "TP1", "H-SL", "S-SL"):
         if label in text:
             return label
     if "LOSS" in text or "SOFT SL" in text:
         return "MISS"
-    return "WAIT"
+    return "MISS" if finalized else "WAIT"
 
 def fmt(v):
     if not v: return "—"
@@ -446,7 +446,8 @@ def process_date(logs, rechk, target_date, send_summary=True, replace_existing=F
         pnl = main["pnl_pct"]
         level = main["level_hit"]
         outcome, evaluation_type, would_outcome = classify_recheck_outcome(sig, raw_outcome, level)
-        label = recheck_label(outcome, level)
+        window_closed = now_thai() >= hit_end_th
+        label = recheck_label(outcome, level, finalized=window_closed)
         main_label = MAIN_WINDOW
         log(f"  {sig.get('id','?')}: {sig.get('direction')} @ {fmt(sig.get('entry'))} "
             f"→ {main_label}={fmt(main.get('price'))} | H{main_label}={fmt(main.get('high'))} L{main_label}={fmt(main.get('low'))} "
