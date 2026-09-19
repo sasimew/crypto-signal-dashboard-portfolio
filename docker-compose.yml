@@ -56,8 +56,6 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
-      - TELEGRAM_TOKEN2=${TELEGRAM_TOKEN2}
-      - TELEGRAM_CHAT2_ID=${TELEGRAM_CHAT2_ID}
       - BOT_SCRIPT=${BOT_SCRIPT:-/app/bot_set3.py}
     command: >
       sh -c "
@@ -66,8 +64,6 @@ services:
         echo \"ANTHROPIC_API_KEY=$$ANTHROPIC_API_KEY\" >> /etc/cron.d/cryptobot &&
         echo \"TELEGRAM_TOKEN=$$TELEGRAM_TOKEN\" >> /etc/cron.d/cryptobot &&
         echo \"TELEGRAM_CHAT_ID=$$TELEGRAM_CHAT_ID\" >> /etc/cron.d/cryptobot &&
-        echo \"TELEGRAM_TOKEN2=$$TELEGRAM_TOKEN2\" >> /etc/cron.d/cryptobot &&
-        echo \"TELEGRAM_CHAT2_ID=$$TELEGRAM_CHAT2_ID\" >> /etc/cron.d/cryptobot &&
         echo \"TG_BOT_TOKEN=$$TELEGRAM_TOKEN\" >> /etc/cron.d/cryptobot &&
         echo \"TG_CHAT_ID=$$TELEGRAM_CHAT_ID\" >> /etc/cron.d/cryptobot &&
         echo \"DATA_DIR=$$DATA_DIR\" >> /etc/cron.d/cryptobot &&

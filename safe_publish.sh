@@ -20,6 +20,7 @@ gh auth status >/dev/null
 echo "[2/8] Validate Python files"
 PYTHONPYCACHEPREFIX=/tmp/crypto_bot_pycache python3 -m py_compile \
   "$SRC_ROOT/api_server.py" \
+  "$SRC_ROOT/bot_set3.py" \
   "$SRC_ROOT/recheck.py"
 
 echo "[3/8] Copy publish-safe files"

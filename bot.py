@@ -1511,41 +1511,31 @@ def _tg_send(token, chat_id, msg):
         log(f"Telegram send error: {e}")
         return False
 
-def _telegram_targets():
-    targets = []
-
-    def add(token, chat_id, label):
-        token = (token or "").strip()
-        chat_id = str(chat_id or "").strip()
-        if not token or not chat_id or "YOUR" in token:
-            return
-        pair = (token, chat_id, label)
-        if pair not in targets:
-            targets.append(pair)
-
-    add(
-        getattr(cfg, "TELEGRAM_TOKEN", None) or getattr(cfg, "TG_BOT_TOKEN", "") or os.getenv("TELEGRAM_TOKEN", ""),
-        getattr(cfg, "TELEGRAM_CHAT_ID", None) or getattr(cfg, "TG_CHAT_ID", "") or os.getenv("TELEGRAM_CHAT_ID", ""),
-        "primary",
+def _telegram_target():
+    token = (
+        getattr(cfg, "TELEGRAM_TOKEN", None)
+        or getattr(cfg, "TG_BOT_TOKEN", "")
+        or os.getenv("TELEGRAM_TOKEN", "")
     )
-    add(
-        os.getenv("TELEGRAM_TOKEN2", "") or os.getenv("TELEGRAM_TOKEN", ""),
-        os.getenv("TELEGRAM_CHAT2_ID", ""),
-        "secondary",
+    chat_id = (
+        getattr(cfg, "TELEGRAM_CHAT_ID", None)
+        or getattr(cfg, "TG_CHAT_ID", "")
+        or os.getenv("TELEGRAM_CHAT_ID", "")
     )
-    return targets
+    token = (token or "").strip()
+    chat_id = str(chat_id or "").strip()
+    if not token or not chat_id or "YOUR" in token:
+        return None
+    return token, chat_id
 
-def _tg_send_all(msg):
-    targets = _telegram_targets()
-    if not targets:
-        log("  Telegram skipped: no configured targets")
+def _tg_send_primary(msg):
+    target = _telegram_target()
+    if not target:
+        log("  Telegram skipped: primary token/chat_id not configured")
         return False
-    sent_any = False
-    for token, chat_id, label in targets:
-        ok = _tg_send(token, chat_id, msg)
-        log(f"  Telegram {label}: {'sent' if ok else 'failed'}")
-        sent_any = sent_any or ok
-    return sent_any
+    ok = _tg_send(*target, msg)
+    log(f"  Telegram primary: {'sent' if ok else 'failed'}")
+    return ok
 
 def _fmt_regime(regime): return regime or "—"
 def _tg_escape(value, limit=None):
@@ -1587,7 +1577,7 @@ def _has_required_trade_fields(sig):
                 and sig.get("tp1") and (sig.get("hsl") or sig.get("ssl")))
 
 def send_telegram(sig):
-    if not _telegram_targets():
+    if not _telegram_target():
         log("  Telegram skipped: token/chat_id not configured"); return False
     verdict = sig.get("verdict", "")
     if not _has_required_trade_fields(sig):
@@ -1626,7 +1616,7 @@ def send_telegram(sig):
         msg += f"\n⚠️ ความเสี่ยง: {_tg_escape(sig['risk_flags'][0], 180)}\n"
     if sig.get("reason"):
         msg += f"\n💬 {_tg_escape(sig['reason'], 260)}\n"
-    return _tg_send_all(msg)
+    return _tg_send_primary(msg)
 
 def _send_telegram_rejected(sig):
     sym = sig["symbol"].replace("USDT", ""); direction = sig["direction"]
@@ -1649,7 +1639,7 @@ def _send_telegram_rejected(sig):
     if t15.get("vol_ratio"): msg += f"📦 Volume: {t15['vol_ratio']:.1f}x avg\n"
     if fr is not None: msg += f"💸 Funding: {fr:+.4f}%\n"
     msg += f"\n💬 {_tg_escape(reason, 320)}\n\n━━━━━━"
-    return _tg_send_all(msg)
+    return _tg_send_primary(msg)
 
 def should_notify(verdict):
     n = getattr(cfg, "NOTIFY_ON", "approved_weak")
